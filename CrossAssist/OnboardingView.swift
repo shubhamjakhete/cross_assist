@@ -9,7 +9,7 @@ import SwiftUI
 
 struct OnboardingView: View {
     @AppStorage("onboardingComplete") private var onboardingComplete = false
-    @State private var showDetection = false
+    @State private var showHome = false
 
     var body: some View {
         ScrollView(showsIndicators: false) {
@@ -23,8 +23,8 @@ struct OnboardingView: View {
         }
         .background(Color(hex: "0A0F1E").ignoresSafeArea())
         .ignoresSafeArea(edges: .bottom)
-        .fullScreenCover(isPresented: $showDetection) {
-            MainDetectionView()
+        .fullScreenCover(isPresented: $showHome) {
+            HomeView()
         }
     }
 
@@ -192,7 +192,7 @@ struct OnboardingView: View {
             // Start Setup
             Button {
                 onboardingComplete = true
-                showDetection = true
+                showHome = true
             } label: {
                 ZStack {
                     RoundedRectangle(cornerRadius: 16)
@@ -212,7 +212,7 @@ struct OnboardingView: View {
             // Continue as Guest
             Button {
                 onboardingComplete = true
-                showDetection = true
+                showHome = true
             } label: {
                 ZStack {
                     RoundedRectangle(cornerRadius: 16)

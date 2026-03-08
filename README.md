@@ -6,14 +6,6 @@ CrossAssist is an iOS assistive-vision app built for low-vision pedestrians. It 
 
 ---
 
-## Screenshots
-
-| Onboarding | Live Detection |
-|---|---|
-| ![Onboarding](Docs/onboarding.png) | ![Detection](Docs/detection.png) |
-
----
-
 ## Features
 
 - **Real-time object detection** — YOLOv11n (80 COCO classes) running entirely on-device via Core ML + Vision

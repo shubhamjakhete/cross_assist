@@ -9,7 +9,10 @@ import SwiftUI
 
 struct HomeView: View {
     @State private var showDetection = false
-    @State private var sensorPulse  = false
+    @State private var showSettings  = false
+    @State private var showHistory   = false
+    @State private var showCrossing  = false
+    @State private var sensorPulse   = false
 
     var body: some View {
         ZStack(alignment: .bottomTrailing) {
@@ -39,6 +42,15 @@ struct HomeView: View {
         }
         .fullScreenCover(isPresented: $showDetection) {
             MainDetectionView()
+        }
+        .fullScreenCover(isPresented: $showSettings) {
+            SettingsView()
+        }
+        .fullScreenCover(isPresented: $showHistory) {
+            PlaceholderView(title: "History")
+        }
+        .fullScreenCover(isPresented: $showCrossing) {
+            CrossingGuidanceView()
         }
     }
 
@@ -225,7 +237,7 @@ struct HomeView: View {
 
             // Secondary row
             HStack(spacing: 12) {
-                Button { print("practice mode tapped") } label: {
+                Button { showDetection = true } label: {
                     ZStack {
                         RoundedRectangle(cornerRadius: 16)
                             .fill(Color(hex: "1F2937"))
@@ -242,7 +254,7 @@ struct HomeView: View {
                     .frame(height: 52)
                 }
 
-                Button { print("settings tapped") } label: {
+                Button { showSettings = true } label: {
                     ZStack {
                         RoundedRectangle(cornerRadius: 16)
                             .fill(Color(hex: "1F2937"))
@@ -301,25 +313,29 @@ struct HomeView: View {
 
     private var tabBar: some View {
         HStack(spacing: 0) {
-            tabItem(icon: "house.fill",                   label: "HOME",    selected: true)
-            tabItem(icon: "clock.arrow.2.circlepath", label: "HISTORY", selected: false)
-            tabItem(icon: "map",                          label: "MAP",     selected: false)
-            tabItem(icon: "person",                       label: "PROFILE", selected: false)
+            tabItem(icon: "house.fill",               label: "HOME",    selected: true,  action: nil)
+            tabItem(icon: "clock.arrow.2.circlepath", label: "HISTORY", selected: false, action: { showHistory  = true })
+            tabItem(icon: "map",                      label: "MAP",     selected: false, action: { showCrossing = true })
+            tabItem(icon: "person",                   label: "PROFILE", selected: false, action: { showSettings = true })
         }
         .padding(.vertical, 12)
         .background(Color(hex: "0F172A"))
     }
 
-    private func tabItem(icon: String, label: String, selected: Bool) -> some View {
-        VStack(spacing: 4) {
-            Image(systemName: icon)
-                .font(.system(size: 22))
-                .foregroundStyle(selected ? Color(hex: "2563EB") : Color.white.opacity(0.4))
-            Text(label)
-                .font(.system(size: 10, weight: selected ? .bold : .regular))
-                .foregroundStyle(selected ? Color(hex: "2563EB") : Color.white.opacity(0.4))
+    private func tabItem(icon: String, label: String, selected: Bool, action: (() -> Void)?) -> some View {
+        Button { action?() } label: {
+            VStack(spacing: 4) {
+                Image(systemName: icon)
+                    .font(.system(size: 22))
+                    .foregroundStyle(selected ? Color(hex: "2563EB") : Color.white.opacity(0.4))
+                Text(label)
+                    .font(.system(size: 10, weight: selected ? .bold : .regular))
+                    .foregroundStyle(selected ? Color(hex: "2563EB") : Color.white.opacity(0.4))
+            }
+            .frame(maxWidth: .infinity)
         }
-        .frame(maxWidth: .infinity)
+        .buttonStyle(.plain)
+        .disabled(action == nil)
     }
 }
 

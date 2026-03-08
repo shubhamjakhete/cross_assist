@@ -10,11 +10,16 @@ import Combine
 import SwiftUI
 
 struct MainDetectionView: View {
+    @Environment(\.dismiss) private var dismiss
     @StateObject private var cameraManager = CameraManager()
     @State private var trackedObjects: [TrackedObject] = []
     @State private var cameraPermissionGranted = false
     @State private var isInitializing = true
     @State private var detectionService: DetectionService?
+    @State private var showSettings  = false
+    @State private var showCrossing  = false
+    @State private var showEmergency = false
+    @State private var showHistory   = false
 
     private let objectTracker = ObjectTracker()
 
@@ -59,7 +64,7 @@ struct MainDetectionView: View {
             if !isInitializing {
                 // Layer 3: Top bar — interactive
                 VStack {
-                    TopBarView()
+                    TopBarView(onSOSTapped: { showEmergency = true })
                         .padding(.top, 12)
                         .padding(.horizontal, 12)
                     Spacer()
@@ -85,9 +90,28 @@ struct MainDetectionView: View {
                     BottomStatusBar(trackedObjects: trackedObjects)
                         .allowsHitTesting(false)
                         .padding(.bottom, 12)
-                    BottomActionBar()
+                    BottomActionBar(
+                        onSettingsTapped:   { showSettings  = true },
+                        onMapTapped:        { showCrossing  = true },
+                        onStopLongPress:    { showEmergency = true },
+                        onStopTapped:       { dismiss() },
+                        onTabHistoryTapped: { showHistory   = true },
+                        onTabProfileTapped: { showSettings  = true }
+                    )
                 }
             }
+        }
+        .fullScreenCover(isPresented: $showSettings) {
+            SettingsView()
+        }
+        .fullScreenCover(isPresented: $showCrossing) {
+            CrossingGuidanceView()
+        }
+        .fullScreenCover(isPresented: $showEmergency) {
+            EmergencyView()
+        }
+        .fullScreenCover(isPresented: $showHistory) {
+            PlaceholderView(title: "History")
         }
         .onAppear {
             do {
@@ -115,6 +139,10 @@ struct MainDetectionView: View {
                 await MainActor.run {
                     trackedObjects = tracked
                     print("🟢 Tracked objects count: \(trackedObjects.count)")
+                    let zebraDetected = tracked.contains { $0.label.lowercased().contains("zebra") }
+                    if zebraDetected && !showCrossing {
+                        showCrossing = true
+                    }
                 }
             }
         }

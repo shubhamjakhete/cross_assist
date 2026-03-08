@@ -36,9 +36,9 @@ struct OnboardingView: View {
 
     private var topBar: some View {
         HStack {
-            // X button — dev reset
+            // X button — navigate to HomeView
             Button {
-                onboardingComplete = false
+                showHome = true
             } label: {
                 Image(systemName: "xmark")
                     .font(.system(size: 16, weight: .medium))

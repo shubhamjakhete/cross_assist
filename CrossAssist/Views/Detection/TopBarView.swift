@@ -13,6 +13,8 @@ struct TopBarView: View {
     @AppStorage("hapticsEnabled") private var hapticsEnabled = true
     @State private var batteryLevel: Float = -1
 
+    var onSOSTapped: () -> Void = {}
+
     var body: some View {
         HStack(spacing: 10) {
             // Voice toggle
@@ -36,6 +38,16 @@ struct TopBarView: View {
                 icon: "battery.100",
                 text: batteryLevel < 0 ? "100%" : "\(Int(batteryLevel * 100))%"
             )
+
+            // SOS button
+            Button { onSOSTapped() } label: {
+                Text("SOS")
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                    .background(Color(hex: "EF4444"), in: Capsule())
+            }
         }
         .onAppear {
             UIDevice.current.isBatteryMonitoringEnabled = true
@@ -60,7 +72,7 @@ struct TopBarView: View {
 #Preview {
     ZStack {
         Color.gray.ignoresSafeArea()
-        TopBarView()
+        TopBarView(onSOSTapped: { print("SOS preview tapped") })
             .padding(.top, 12)
     }
 }

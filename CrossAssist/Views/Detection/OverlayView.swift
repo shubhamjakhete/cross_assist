@@ -29,45 +29,6 @@ extension Color {
     }
 }
 
-// MARK: - Distance Estimator
-
-struct DistanceEstimator {
-
-    static func estimate(boundingBox: CGRect, label: String) -> Float? {
-        let h = boundingBox.height
-        switch label {
-        case "person":
-            if h > 0.70 { return 0.8 }
-            if h > 0.45 { return 1.5 }
-            if h > 0.25 { return 3.0 }
-            if h > 0.12 { return 6.0 }
-            return nil
-        case "car", "truck", "bus":
-            if h > 0.50 { return 1.5 }
-            if h > 0.30 { return 3.0 }
-            if h > 0.15 { return 6.0 }
-            if h > 0.08 { return 10.0 }
-            return nil
-        case "traffic light":
-            if h > 0.30 { return 5.0 }
-            if h > 0.15 { return 10.0 }
-            return nil
-        default:
-            if h > 0.40 { return 1.0 }
-            if h > 0.25 { return 2.0 }
-            if h > 0.12 { return 4.0 }
-            return nil
-        }
-    }
-
-    static func distanceText(meters: Float) -> String {
-        if meters < 0.8  { return "STOP" }
-        if meters < 2.0  { return "very close" }
-        if meters < 4.0  { return "ahead" }
-        return "far ahead"
-    }
-}
-
 // MARK: - Overlay Helpers
 
 private let vehicleLabels: Set<String> = ["car", "truck", "bus", "motorcycle", "bicycle"]
@@ -119,36 +80,38 @@ struct OverlayView: View {
             // Bounding boxes drawn with Canvas for performance
             Canvas { ctx, size in
                 for obj in trackedObjects {
-                    let distance = DistanceEstimator.estimate(
-                        boundingBox: obj.boundingBox, label: obj.label)
-                    let color = boxColor(for: obj.label, distance: distance)
-                    let rect = visionToSwiftUI(box: obj.boundingBox, in: size)
-
-                    let path = Path(roundedRect: rect, cornerRadius: 12)
+                    let color = boxColor(for: obj.label, distance: obj.distanceMeters)
+                    let rect  = visionToSwiftUI(box: obj.boundingBox, in: size)
+                    let path  = Path(roundedRect: rect, cornerRadius: 12)
                     ctx.stroke(path, with: .color(color), lineWidth: 2.5)
                 }
             }
 
-            // Label pills as SwiftUI views for rich text rendering
+            // Label pills as SwiftUI views for rich text rendering.
+            // .id(text) forces SwiftUI to treat every text change as a brand-new
+            // view, so .transition(.opacity) cross-fades old → new instead of
+            // snapping to the updated string.
             ForEach(trackedObjects) { obj in
-                let distance = DistanceEstimator.estimate(
-                    boundingBox: obj.boundingBox, label: obj.label)
-                let color  = boxColor(for: obj.label, distance: distance)
-                let text   = pillText(label: obj.label, distance: distance)
-                let rect   = visionToSwiftUI(box: obj.boundingBox, in: viewSize)
+                let color = boxColor(for: obj.label, distance: obj.distanceMeters)
+                let text  = pillText(label: obj.label, distance: obj.distanceMeters)
+                let rect  = visionToSwiftUI(box: obj.boundingBox, in: viewSize)
 
                 Text(text)
+                    .id(text)
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(.white)
                     .padding(.horizontal, 8)
                     .padding(.vertical, 4)
                     .background(color.opacity(0.90), in: Capsule())
+                    .transition(.opacity)
+                    .animation(.easeInOut(duration: 0.2), value: text)
                     .position(
                         x: rect.minX + pillWidth(text: text) / 2 + 4,
                         y: rect.minY + 14
                     )
             }
         }
+        .animation(.easeInOut(duration: 0.12), value: trackedObjects.map { $0.boundingBox.origin.x })
         .allowsHitTesting(false)
     }
 
@@ -162,12 +125,15 @@ struct OverlayView: View {
 
 #Preview {
     let fakeObjects: [TrackedObject] = [
-        TrackedObject(id: 0, label: "person",  confidence: 0.92,
-                      boundingBox: CGRect(x: 0.10, y: 0.20, width: 0.15, height: 0.45)),
-        TrackedObject(id: 1, label: "car",     confidence: 0.88,
-                      boundingBox: CGRect(x: 0.50, y: 0.30, width: 0.35, height: 0.30)),
+        TrackedObject(id: 0, label: "person",    confidence: 0.92,
+                      boundingBox: CGRect(x: 0.10, y: 0.20, width: 0.15, height: 0.45),
+                      distanceMeters: 1.2),
+        TrackedObject(id: 1, label: "car",       confidence: 0.88,
+                      boundingBox: CGRect(x: 0.50, y: 0.30, width: 0.35, height: 0.30),
+                      distanceMeters: 4.5),
         TrackedObject(id: 2, label: "stop sign", confidence: 0.75,
-                      boundingBox: CGRect(x: 0.70, y: 0.60, width: 0.12, height: 0.12)),
+                      boundingBox: CGRect(x: 0.70, y: 0.60, width: 0.12, height: 0.12),
+                      distanceMeters: 0.6),
     ]
     return ZStack {
         Color.gray.opacity(0.3).ignoresSafeArea()

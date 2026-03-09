@@ -16,12 +16,20 @@ struct MainDetectionView: View {
     @State private var cameraPermissionGranted = false
     @State private var isInitializing = true
     @State private var detectionService: DetectionService?
+    @State private var depthService: DepthEstimationService?
+    @State private var depthFrameCounter = 0
     @State private var showSettings  = false
     @State private var showCrossing  = false
     @State private var showEmergency = false
     @State private var showHistory   = false
 
     private let objectTracker = ObjectTracker()
+
+    /// Only show boxes that have been stable for at least 3 consecutive frames,
+    /// eliminating single-frame false positives.
+    private var stableObjects: [TrackedObject] {
+        trackedObjects.filter { $0.frameCount >= 5 }
+    }
 
     // MARK: - Body
 
@@ -38,7 +46,7 @@ struct MainDetectionView: View {
                             .ignoresSafeArea()
 
                         OverlayView(
-                            trackedObjects: trackedObjects,
+                            trackedObjects: stableObjects,
                             viewSize: geo.size
                         )
                         .ignoresSafeArea()
@@ -75,7 +83,7 @@ struct MainDetectionView: View {
                     // top spacer accounts for top bar height (~50pt) + padding
                     Spacer().frame(height: 80)
                     HStack {
-                        LeftPanelView(trackedObjects: trackedObjects)
+                        LeftPanelView(trackedObjects: stableObjects)
                             .padding(.leading, 16)
                         Spacer()
                     }
@@ -87,7 +95,7 @@ struct MainDetectionView: View {
                 // Layer 5 + 6: Bottom status bar + action bar
                 VStack(spacing: 0) {
                     Spacer()
-                    BottomStatusBar(trackedObjects: trackedObjects)
+                    BottomStatusBar(trackedObjects: stableObjects)
                         .allowsHitTesting(false)
                         .padding(.bottom, 12)
                     BottomActionBar(
@@ -113,17 +121,26 @@ struct MainDetectionView: View {
         .fullScreenCover(isPresented: $showHistory) {
             PlaceholderView(title: "History")
         }
-        .onAppear {
+        .task {
+            // Load YOLO synchronously — fast, already @MainActor
             do {
                 detectionService = try DetectionService.create()
                 print("✅ DetectionService created and ready")
             } catch {
                 print("❌ Failed to create DetectionService: \(error)")
             }
+            // Start camera immediately after YOLO is ready
             checkCameraPermission()
-            Task {
-                try? await Task.sleep(for: .seconds(2))
-                await MainActor.run { isInitializing = false }
+            try? await Task.sleep(for: .seconds(2))
+            isInitializing = false
+
+            // Load 49MB depth model in background so camera is unblocked
+            Task.detached(priority: .background) { [self] in
+                let depth = await MainActor.run { try? DepthEstimationService.create() }
+                guard let depth else { return }
+                await self.objectTracker.setDepthService(depth)
+                await MainActor.run { self.depthService = depth }
+                print("✅ DepthEstimationService ready")
             }
         }
         .onReceive(cameraManager.$latestFrame) { frame in
@@ -134,14 +151,39 @@ struct MainDetectionView: View {
                     print("❌ DetectionService is nil — YOLO model failed to load")
                     return
                 }
+
+                // ── Step 1: YOLO detection + IoU tracking (heuristic distance) ──
                 let detections = await service.detect(frame: frame)
-                let tracked   = await objectTracker.update(detections: detections)
+                let tracked    = await objectTracker.update(detections: detections)
                 await MainActor.run {
                     trackedObjects = tracked
                     print("🟢 Tracked objects count: \(trackedObjects.count)")
                     let zebraDetected = tracked.contains { $0.label.lowercased().contains("zebra") }
-                    if zebraDetected && !showCrossing {
-                        showCrossing = true
+                    if zebraDetected && !showCrossing { showCrossing = true }
+                }
+
+                // ── Step 2: Depth Anything V2 enrichment (every 8th frame, fully detached) ──
+                depthFrameCounter += 1
+                guard depthFrameCounter % 8 == 0, !tracked.isEmpty else { return }
+                guard let depthSvc = depthService else { return }
+
+                // Capture Sendable values before leaving @MainActor context
+                let capturedTracked = tracked
+                let capturedFrame   = frame
+                Task.detached(priority: .utility) { [self] in
+                    var enriched = capturedTracked
+                    for i in enriched.indices {
+                        if let depth = await depthSvc.estimateDepth(
+                            pixelBuffer: capturedFrame.pixelBuffer,
+                            boundingBox: enriched[i].boundingBox
+                        ) {
+                            enriched[i].distanceMeters = depth
+                        }
+                    }
+                    let final = enriched  // immutable snapshot — safe to cross into MainActor.run
+                    await MainActor.run { [self] in
+                        self.trackedObjects = final
+                        print("📐 Depth enrichment done — \(final.count) objects")
                     }
                 }
             }

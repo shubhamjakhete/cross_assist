@@ -16,7 +16,7 @@ enum DetectionError: Error {
 
 actor DetectionService {
 
-    nonisolated let confidenceThreshold: Float = 0.30
+    nonisolated let confidenceThreshold: Float = 0.40
     nonisolated let nmsIoUThreshold: Float = 0.45
 
     private var visionModel: VNCoreMLModel?
@@ -79,7 +79,7 @@ actor DetectionService {
             }
             print("✅ Got \(observations.count) raw observations")
             results = observations
-                .filter { $0.confidence >= 0.30 }
+                .filter { $0.confidence >= 0.40 }
                 .map { obs in
                     DetectedObject(
                         id: UUID(),

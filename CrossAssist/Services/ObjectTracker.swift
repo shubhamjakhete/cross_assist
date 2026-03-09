@@ -8,10 +8,15 @@
 import CoreGraphics
 
 actor ObjectTracker {
-    private static let emaAlpha: CGFloat = 0.4
+    private static let emaAlpha: CGFloat = 0.25
 
     private var tracks: [Int: TrackedObject] = [:]
     private var nextId = 0
+    private var depthService: DepthEstimationService?
+
+    func setDepthService(_ service: DepthEstimationService) {
+        depthService = service
+    }
 
     func update(detections: [DetectedObject]) -> [TrackedObject] {
         guard !detections.isEmpty else {
@@ -25,7 +30,7 @@ actor ObjectTracker {
         for (trackId, track) in tracks {
             for (idx, det) in detections.enumerated() {
                 let overlap = iou(track.boundingBox, det.boundingBox)
-                if overlap > 0 {
+                if overlap >= 0.25 {
                     candidates.append((trackId, idx, overlap))
                 }
             }
@@ -44,7 +49,12 @@ actor ObjectTracker {
                 id: match.trackId,
                 label: det.label,
                 confidence: det.confidence,
-                boundingBox: smoothed
+                boundingBox: smoothed,
+                distanceMeters: DistanceEstimator.estimateDistance(
+                    label: det.label,
+                    boundingBox: smoothed
+                ),
+                frameCount: track.frameCount + 1
             )
         }
 
@@ -55,7 +65,11 @@ actor ObjectTracker {
                 id: id,
                 label: det.label,
                 confidence: det.confidence,
-                boundingBox: det.boundingBox
+                boundingBox: det.boundingBox,
+                distanceMeters: DistanceEstimator.estimateDistance(
+                    label: det.label,
+                    boundingBox: det.boundingBox
+                )
             )
         }
 

@@ -36,13 +36,23 @@ extension Color {
 private func boxColor(for label: String, distance: Float?) -> Color {
     if let d = distance, d < 0.8 { return Color(hex: "EF4444") }
     switch label {
-    case "person":        return Color(hex: "3B82F6")  // blue
-    case "vehicle":       return Color(hex: "EF4444")  // red
-    case "bicycle":       return Color(hex: "A855F7")  // purple
-    case "traffic light": return Color(hex: "EAB308")  // yellow
-    case "stop sign":     return Color(hex: "F97316")  // orange
-    case "obstacle":      return Color(hex: "6B7280")  // gray
-    default:              return .white
+    // yolo11n canonical labels
+    case "person":           return Color(hex: "3B82F6")  // blue
+    case "vehicle":          return Color(hex: "EF4444")  // red
+    case "bicycle":          return Color(hex: "A855F7")  // purple
+    case "traffic light":    return Color(hex: "EAB308")  // yellow
+    case "stop sign":        return Color(hex: "F97316")  // orange
+    case "obstacle":         return Color(hex: "6B7280")  // gray
+    // pedestrianSignal model labels
+    case "GREEN LIGHT":      return Color(hex: "22C55E")  // green
+    case "RED LIGHT":        return Color(hex: "EF4444")  // red
+    case "WALK SIGNAL":      return Color(hex: "3B82F6")  // blue
+    case "SIGNAL":           return Color(hex: "EAB308")  // yellow
+    // crosswalkDetection model labels
+    case "CROSSWALK":        return Color(hex: "3B82F6")  // blue
+    case "WHEELCHAIR USER":  return Color(hex: "8B5CF6")  // purple
+    case "CANE USER":        return .white
+    default:                 return .white
     }
 }
 
@@ -107,13 +117,22 @@ struct OverlayView: View {
 
     var body: some View {
         ZStack(alignment: .topLeading) {
-            // Bounding boxes drawn with Canvas for performance
+            // Bounding boxes drawn with Canvas for performance.
+            // CROSSWALK gets a dashed blue stroke (less intrusive, road-marking feel).
+            // All other labels get the standard solid stroke.
             Canvas { ctx, size in
                 for obj in trackedObjects {
                     let color = boxColor(for: obj.label, distance: obj.distanceMeters)
                     let rect  = visionToSwiftUI(box: obj.boundingBox, in: size)
-                    let path  = Path(roundedRect: rect, cornerRadius: 12)
-                    ctx.stroke(path, with: .color(color), lineWidth: 2.5)
+                    if obj.label == "CROSSWALK" {
+                        let path = Path(roundedRect: rect, cornerRadius: 8)
+                        ctx.stroke(path,
+                                   with: .color(color.opacity(0.7)),
+                                   style: StrokeStyle(lineWidth: 2, dash: [8, 4]))
+                    } else {
+                        let path = Path(roundedRect: rect, cornerRadius: 12)
+                        ctx.stroke(path, with: .color(color), lineWidth: 2.5)
+                    }
                 }
             }
 
@@ -140,7 +159,11 @@ struct OverlayView: View {
                     .transition(.opacity)
                     .animation(.easeInOut(duration: 0.2), value: text)
                     .position(
-                        x: rect.minX + pillWidth(text: text) / 2 + 4,
+                        // CROSSWALK covers the full ground area — center the pill
+                        // horizontally so it doesn't crowd the left edge.
+                        x: obj.label == "CROSSWALK"
+                            ? rect.midX
+                            : rect.minX + pillWidth(text: text) / 2 + 4,
                         y: rect.minY + 14
                     )
             }

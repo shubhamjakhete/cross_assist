@@ -118,10 +118,41 @@ actor ObjectTracker {
         // Person tracks need extra stability to filter out static walk-sign
         // figures (which also accumulate age quickly but are caught earlier by
         // the aspect-ratio filter in DetectionService).
-        return tracks.values.filter { track in
+        let visible = tracks.values.filter { track in
             let minAge = track.label == "person" ? 8 : 1
             return track.frameCount >= minAge
         }
+
+        // MARK: - Crosswalk deduplication
+        // crosswalkDetection fires on each stripe of a crosswalk separately,
+        // producing 4-8 overlapping boxes on the same surface.  Merge them all
+        // into a single unified bounding box (union hull of all individual boxes)
+        // keyed on the highest-confidence detection.
+        let crosswalks = visible.filter { $0.label == "CROSSWALK" }
+        let others     = visible.filter { $0.label != "CROSSWALK" }
+
+        guard crosswalks.count > 1 else {
+            return others + crosswalks   // 0 or 1 crosswalk — nothing to merge
+        }
+
+        let minX = crosswalks.map { $0.boundingBox.minX }.min()!
+        let minY = crosswalks.map { $0.boundingBox.minY }.min()!
+        let maxX = crosswalks.map { $0.boundingBox.maxX }.max()!
+        let maxY = crosswalks.map { $0.boundingBox.maxY }.max()!
+        let mergedBox = CGRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY)
+
+        let best = crosswalks.max(by: { $0.confidence < $1.confidence })!
+        var merged = TrackedObject(
+            id: best.id,
+            label: "CROSSWALK",
+            confidence: best.confidence,
+            boundingBox: mergedBox,
+            distanceMeters: best.distanceMeters,
+            frameCount: best.frameCount
+        )
+        merged.walkSignalRecommendation = best.walkSignalRecommendation
+
+        return others + [merged]
     }
 
     // MARK: - Traffic light classification

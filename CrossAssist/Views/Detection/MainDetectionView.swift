@@ -18,10 +18,13 @@ struct MainDetectionView: View {
     @State private var detectionService: DetectionService?
     @State private var depthService: DepthEstimationService?
     @State private var depthFrameCounter = 0
-    @State private var showSettings  = false
-    @State private var showCrossing  = false
-    @State private var showEmergency = false
-    @State private var showHistory   = false
+    @State private var showSettings      = false
+    @State private var showCrossing      = false
+    @State private var showEmergency     = false
+    @State private var showHistory       = false
+    /// Shown briefly when the crosswalkDetection model sees a crosswalk.
+    /// Auto-dismissed after 5 seconds.
+    @State private var showCrossingHint  = false
 
     private let objectTracker = ObjectTracker()
 
@@ -98,6 +101,22 @@ struct MainDetectionView: View {
                     BottomStatusBar(trackedObjects: stableObjects)
                         .allowsHitTesting(false)
                         .padding(.bottom, 12)
+
+                    if showCrossingHint {
+                        Text("Crosswalk detected — tap map to start guidance")
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundStyle(.white)
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 10)
+                            .frame(maxWidth: .infinity)
+                            .background(Color(hex: "3B82F6"))
+                            .padding(.horizontal, 12)
+                            .padding(.bottom, 8)
+                            .transition(.opacity)
+                            .allowsHitTesting(false)
+                    }
+
                     BottomActionBar(
                         onSettingsTapped:   { showSettings  = true },
                         onMapTapped:        { showCrossing  = true },
@@ -160,6 +179,18 @@ struct MainDetectionView: View {
                     print("🟢 Tracked objects count: \(trackedObjects.count)")
                     let zebraDetected = tracked.contains { $0.label.lowercased().contains("zebra") }
                     if zebraDetected && !showCrossing { showCrossing = true }
+
+                    // Show hint banner when crosswalkDetection model sees a crosswalk.
+                    let crosswalkDetected = tracked.contains { $0.label == "CROSSWALK" }
+                    if crosswalkDetected && !showCrossingHint {
+                        showCrossingHint = true
+                        Task { @MainActor in
+                            try? await Task.sleep(for: .seconds(5))
+                            withAnimation(.easeInOut(duration: 0.4)) {
+                                showCrossingHint = false
+                            }
+                        }
+                    }
                 }
 
                 // ── Step 2: Depth Anything V2 enrichment (every 8th frame, fully detached) ──

@@ -9,7 +9,7 @@ import SwiftUI
 /// Unified state for Card 2 — merges pedestrianSignal model results (which
 /// have priority) with the HSV-based TrafficLightState from yolo11n detections.
 private enum TrafficCardState: Equatable {
-    case red, yellow, green, walk, unknown
+    case red, yellow, green, walk, crosswalk, unknown
 }
 
 struct LeftPanelView: View {
@@ -34,8 +34,14 @@ struct LeftPanelView: View {
         }.count
     }
 
-    /// pedestrianSignal model results take priority over HSV classification.
+    /// Live distance text for the nearest detected crosswalk (or "" if none).
+    private var nearestCrosswalkDistance: String {
+        trackedObjects.first { $0.label == "CROSSWALK" }?.formattedDistance ?? ""
+    }
+
+    /// Priority order: crosswalk model > pedestrianSignal model > HSV colour.
     private var liveTrafficState: TrafficCardState {
+        if trackedObjects.contains(where: { $0.label == "CROSSWALK"   }) { return .crosswalk }
         if trackedObjects.contains(where: { $0.label == "WALK SIGNAL" }) { return .walk }
         if trackedObjects.contains(where: { $0.label == "GREEN LIGHT" }) { return .green }
         if trackedObjects.contains(where: { $0.label == "RED LIGHT"  }) { return .red }
@@ -329,6 +335,22 @@ struct LeftPanelView: View {
                     .font(.system(size: 12, weight: .bold))
                     .foregroundStyle(Color(hex: "3B82F6"))
                     .lineLimit(1)
+            }
+        case .crosswalk:
+            cardBase(background: Color(hex: "3B82F6")) {
+                Image(systemName: "figure.walk.motion")
+                    .font(.system(size: 22))
+                    .foregroundStyle(.white)
+                Text("CROSSING")
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundStyle(.white)
+                    .lineLimit(1)
+                if !nearestCrosswalkDistance.isEmpty && nearestCrosswalkDistance != "--" {
+                    Text(nearestCrosswalkDistance)
+                        .font(.system(size: 10))
+                        .foregroundStyle(Color.white.opacity(0.7))
+                        .lineLimit(1)
+                }
             }
         case .unknown:
             cardBase(background: Color.black.opacity(0.65)) {

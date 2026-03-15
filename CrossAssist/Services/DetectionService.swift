@@ -23,13 +23,19 @@ actor DetectionService {
     /// Dedicated pedestrian-signal classifier (pedestrianSignal.mlpackage).
     /// Optional — if loading fails the service falls back to COCO-only mode.
     private var pedestrianVisionModel: VNCoreMLModel?
+    /// Crosswalk / vulnerable-road-user detector (crosswalkDetection.mlpackage).
+    /// Optional — service continues with the other two models if unavailable.
+    private var crosswalkVisionModel: VNCoreMLModel?
 
-    // Private init — accepts both loaded vision models.
-    init(model: VNCoreMLModel, pedestrianModel: VNCoreMLModel?) {
+    // Private init — accepts all three loaded vision models.
+    init(model: VNCoreMLModel, pedestrianModel: VNCoreMLModel?, crosswalkModel: VNCoreMLModel?) {
         self.visionModel = model
         self.pedestrianVisionModel = pedestrianModel
-        let tag = pedestrianModel != nil ? "both models" : "yolo11n only"
-        print("✅ DetectionService ready — \(tag) loaded")
+        self.crosswalkVisionModel  = crosswalkModel
+        let loaded = [pedestrianModel != nil ? "pedestrianSignal" : nil,
+                      crosswalkModel   != nil ? "crosswalkDetection" : nil]
+            .compactMap { $0 }.joined(separator: " + ")
+        print("✅ DetectionService ready — yolo11n\(loaded.isEmpty ? "" : " + \(loaded)")")
     }
 
     // Static factory — must be called from @MainActor context because the
@@ -68,10 +74,20 @@ actor DetectionService {
             pedVNModel = try VNCoreMLModel(for: pedModel.model)
             print("✅ pedestrianSignal loaded successfully")
         } catch {
-            print("⚠️ pedestrianSignal failed to load — running COCO-only: \(error)")
+            print("⚠️ pedestrianSignal failed to load: \(error)")
         }
 
-        return DetectionService(model: vnModel, pedestrianModel: pedVNModel)
+        // ── Model 3: crosswalkDetection (optional) ────────────────────────
+        var cwVNModel: VNCoreMLModel? = nil
+        do {
+            let cwModel = try crosswalkDetection(configuration: config)
+            cwVNModel = try VNCoreMLModel(for: cwModel.model)
+            print("✅ crosswalkDetection loaded successfully")
+        } catch {
+            print("⚠️ crosswalkDetection failed to load: \(error)")
+        }
+
+        return DetectionService(model: vnModel, pedestrianModel: pedVNModel, crosswalkModel: cwVNModel)
     }
 
     func detect(frame: CameraFrame) async -> [DetectedObject] {
@@ -173,7 +189,39 @@ actor DetectionService {
             requests.append(pedRequest)
         }
 
-        // ── Run both requests on the same handler in one pass ─────────────
+        // ── Model 3: crosswalkDetection — crosswalk + vulnerable road users ──
+
+        var crosswalkResults: [DetectedObject] = []
+
+        if let cwModel = crosswalkVisionModel {
+            let cwRequest = VNCoreMLRequest(model: cwModel) { request, error in
+                if let error = error {
+                    print("❌ crosswalkDetection Vision request error: \(error)")
+                    return
+                }
+                guard let observations = request.results as? [VNRecognizedObjectObservation] else { return }
+                print("✅ crosswalkDetection: \(observations.count) raw observations")
+
+                var filtered: [DetectedObject] = []
+                for obs in observations {
+                    guard obs.confidence >= 0.35 else { continue }
+                    let raw = obs.labels.first?.identifier.lowercased() ?? ""
+                    // Only emit labels that aren't duplicates of yolo11n classes.
+                    guard let label = crosswalkLabel(raw) else { continue }
+                    filtered.append(DetectedObject(
+                        id: UUID(),
+                        label: label,
+                        confidence: obs.confidence,
+                        boundingBox: obs.boundingBox
+                    ))
+                }
+                crosswalkResults = filtered
+            }
+            cwRequest.imageCropAndScaleOption = .scaleFill
+            requests.append(cwRequest)
+        }
+
+        // ── Run all three requests on the same handler in one pass ────────
 
         let handler = VNImageRequestHandler(
             cvPixelBuffer: frame.pixelBuffer,
@@ -187,8 +235,8 @@ actor DetectionService {
             print("❌ VNImageRequestHandler error: \(error)")
         }
 
-        let merged = yoloResults + pedResults
-        print("✅ detect() returning \(merged.count) objects (\(yoloResults.count) COCO + \(pedResults.count) signal)")
+        let merged = yoloResults + pedResults + crosswalkResults
+        print("✅ detect() returning \(merged.count) objects (\(yoloResults.count) COCO + \(pedResults.count) signal + \(crosswalkResults.count) crosswalk)")
         return merged
     }
 }
@@ -218,5 +266,29 @@ private func pedestrianLabel(_ raw: String) -> String {
     case "red":                         return "RED LIGHT"
     case "signal-light":                return "SIGNAL"
     default:                            return raw
+    }
+}
+
+/// Maps raw crosswalkDetection class names to display labels.
+/// Returns nil for classes that duplicate yolo11n (cars, motorcycle, truck).
+///
+/// Classes:
+///   0 = cars               → nil (skip)
+///   1 = crosswalk          → "CROSSWALK"
+///   2 = green_traffic_light → "GREEN LIGHT"
+///   3 = motorcycle         → nil (skip)
+///   4 = red_traffic_light  → "RED LIGHT"
+///   5 = truck              → nil (skip)
+///   6 = wheelchair_road_user → "WHEELCHAIR USER"
+///   7 = white_cane_user    → "CANE USER"
+private func crosswalkLabel(_ raw: String) -> String? {
+    switch raw {
+    case "crosswalk":            return "CROSSWALK"
+    case "green_traffic_light":  return "GREEN LIGHT"
+    case "red_traffic_light":    return "RED LIGHT"
+    case "wheelchair_road_user": return "WHEELCHAIR USER"
+    case "white_cane_user":      return "CANE USER"
+    case "cars", "motorcycle", "truck": return nil  // handled by yolo11n
+    default:                     return nil
     }
 }

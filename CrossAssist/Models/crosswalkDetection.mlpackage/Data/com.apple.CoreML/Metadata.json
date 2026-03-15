@@ -1,0 +1,20 @@
+{
+  "MLModelVersionStringKey" : "8.4.21",
+  "MLModelDescriptionKey" : "Ultralytics YOLO11n model trained on \/Users\/shubhamjakhete\/workspace\/depth_conversion\/Road-users-disabilities-5\/data.yaml",
+  "MLModelCreatorDefinedKey" : {
+    "batch" : "1",
+    "docs" : "https:\/\/docs.ultralytics.com",
+    "names" : "{0: 'cars', 1: 'crosswalk', 2: 'green_traffic_light', 3: 'motorcycle', 4: 'red_traffic_light', 5: 'truck', 6: 'wheelchair_road_user', 7: 'white_cane_user'}",
+    "imgsz" : "[480, 480]",
+    "channels" : "3",
+    "stride" : "32",
+    "IoU threshold" : "0.7",
+    "date" : "2026-03-15T09:06:05.430986",
+    "args" : "{'batch': 1, 'half': False, 'int8': False, 'dynamic': False, 'nms': True}",
+    "Confidence threshold" : "0.25",
+    "task" : "detect",
+    "end2end" : "False"
+  },
+  "MLModelAuthorKey" : "Ultralytics",
+  "MLModelLicenseKey" : "AGPL-3.0 License (https:\/\/ultralytics.com\/license)"
+}

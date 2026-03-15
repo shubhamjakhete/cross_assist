@@ -21,6 +21,7 @@ enum StatusType: Equatable {
     case dangerous(String, String)
     case timerSafeNoCountdown
     case zebra
+    case crosswalkDetected
     case scanning
     case clear
 }
@@ -75,7 +76,7 @@ struct BottomStatusBar: View {
         // 7. Solid WALK figure (no countdown visible).
         if timerRec == .safeNoCountdown { return .timerSafeNoCountdown }
 
-        // 8. Zebra / crosswalk detected.
+        // 8. Zebra / crosswalk stripe label from yolo11n.
         if trackedObjects.contains(where: {
             $0.label.lowercased().contains("zebra") ||
             $0.label.lowercased().contains("crossing")
@@ -83,7 +84,12 @@ struct BottomStatusBar: View {
             return .zebra
         }
 
-        // 9. Nothing detected yet.
+        // 9. Crosswalk detected by dedicated crosswalkDetection model.
+        if trackedObjects.contains(where: { $0.label == "CROSSWALK" }) {
+            return .crosswalkDetected
+        }
+
+        // 10. Nothing detected yet.
         if trackedObjects.isEmpty { return .scanning }
 
         // 10. Default — scene has objects but no hazards.
@@ -110,6 +116,8 @@ struct BottomStatusBar: View {
             return ("Safe to cross ✓", Color(hex: "22C55E"))
         case .zebra:
             return ("CROSSWALK DETECTED", Color(hex: "3B82F6"))
+        case .crosswalkDetected:
+            return ("CROSSWALK DETECTED — safe to cross", Color(hex: "3B82F6"))
         case .scanning:
             return ("Scanning...", Color(hex: "9CA3AF"))
         case .clear:
@@ -163,6 +171,7 @@ struct BottomStatusBar: View {
         case (.dangerous,            .dangerous):            return true
         case (.timerSafeNoCountdown, .timerSafeNoCountdown): return true
         case (.zebra,                .zebra):                return true
+        case (.crosswalkDetected,    .crosswalkDetected):    return true
         case (.scanning,             .scanning):             return true
         case (.clear,                .clear):                return true
         default:                                             return false

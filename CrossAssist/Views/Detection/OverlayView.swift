@@ -31,32 +31,62 @@ extension Color {
 
 // MARK: - Overlay Helpers
 
-private let vehicleLabels: Set<String> = ["car", "truck", "bus", "motorcycle", "bicycle"]
-
+/// Bounding-box stroke colour per canonical label.
+/// Critical proximity (< 0.8 m) overrides all colours to red.
 private func boxColor(for label: String, distance: Float?) -> Color {
     if let d = distance, d < 0.8 { return Color(hex: "EF4444") }
     switch label {
-    case _ where vehicleLabels.contains(label): return Color(hex: "F97316")
-    case "person":                               return Color(hex: "3B82F6")
-    case "traffic light":                        return Color(hex: "EAB308")
-    case "stop sign":                            return Color(hex: "EF4444")
-    default:                                     return .white
+    case "person":        return Color(hex: "3B82F6")  // blue
+    case "vehicle":       return Color(hex: "EF4444")  // red
+    case "bicycle":       return Color(hex: "A855F7")  // purple
+    case "traffic light": return Color(hex: "EAB308")  // yellow
+    case "stop sign":     return Color(hex: "F97316")  // orange
+    case "obstacle":      return Color(hex: "6B7280")  // gray
+    default:              return .white
     }
 }
 
+/// User-facing display name for a canonical label.
 private func displayLabel(for label: String) -> String {
     switch label {
-    case _ where vehicleLabels.contains(label): return "VEHICLE"
-    case "traffic light":                       return "TRAFFIC LIGHT"
-    default:                                    return label.uppercased()
+    case "person":        return "PERSON"
+    case "vehicle":       return "VEHICLE"
+    case "bicycle":       return "BICYCLE"
+    case "traffic light": return "TRAFFIC LIGHT"
+    case "stop sign":     return "STOP SIGN"
+    case "obstacle":      return "OBSTACLE"
+    default:              return label.uppercased()
     }
 }
 
-private func pillText(label: String, distance: Float?) -> String {
+private func pillText(label: String, distance: Float?, trafficState: TrafficLightState?) -> String {
+    // Traffic light: show the detected colour instead of distance
+    if label.lowercased().contains("traffic light"), let state = trafficState {
+        switch state.color {
+        case .red:     return "🔴 RED"
+        case .yellow:  return "🟡 YELLOW"
+        case .green:   return "🟢 GREEN"
+        case .unknown: return "⚫ LIGHT"
+        }
+    }
     if let d = distance, d < 0.8 { return "OBSTACLE • STOP" }
     let base = displayLabel(for: label)
     guard let d = distance else { return base }
     return "\(base) • \(String(format: "%.1fm", d))"
+}
+
+/// Pill background colour.  For traffic lights this is state-driven;
+/// for everything else it falls through to `boxColor`.
+private func pillBgColor(for label: String, trafficState: TrafficLightState?, distance: Float?) -> Color {
+    if label.lowercased().contains("traffic light"), let state = trafficState {
+        switch state.color {
+        case .red:     return .red
+        case .yellow:  return Color(hex: "EAB308")
+        case .green:   return .green
+        case .unknown: return Color(hex: "EAB308")
+        }
+    }
+    return boxColor(for: label, distance: distance)
 }
 
 // MARK: - Coordinate Conversion
@@ -92,9 +122,13 @@ struct OverlayView: View {
             // view, so .transition(.opacity) cross-fades old → new instead of
             // snapping to the updated string.
             ForEach(trackedObjects) { obj in
-                let color = boxColor(for: obj.label, distance: obj.distanceMeters)
-                let text  = pillText(label: obj.label, distance: obj.distanceMeters)
-                let rect  = visionToSwiftUI(box: obj.boundingBox, in: viewSize)
+                let pillBg = pillBgColor(for: obj.label,
+                                         trafficState: obj.trafficLightState,
+                                         distance: obj.distanceMeters)
+                let text   = pillText(label: obj.label,
+                                      distance: obj.distanceMeters,
+                                      trafficState: obj.trafficLightState)
+                let rect   = visionToSwiftUI(box: obj.boundingBox, in: viewSize)
 
                 Text(text)
                     .id(text)
@@ -102,7 +136,7 @@ struct OverlayView: View {
                     .foregroundStyle(.white)
                     .padding(.horizontal, 8)
                     .padding(.vertical, 4)
-                    .background(color.opacity(0.90), in: Capsule())
+                    .background(pillBg.opacity(0.90), in: Capsule())
                     .transition(.opacity)
                     .animation(.easeInOut(duration: 0.2), value: text)
                     .position(

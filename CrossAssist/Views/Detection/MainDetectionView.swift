@@ -154,7 +154,7 @@ struct MainDetectionView: View {
 
                 // ── Step 1: YOLO detection + IoU tracking (heuristic distance) ──
                 let detections = await service.detect(frame: frame)
-                let tracked    = await objectTracker.update(detections: detections)
+                let tracked    = await objectTracker.update(detections: detections, frame: frame)
                 await MainActor.run {
                     trackedObjects = tracked
                     print("🟢 Tracked objects count: \(trackedObjects.count)")

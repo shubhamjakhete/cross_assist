@@ -17,6 +17,12 @@ struct TrackedObject: Identifiable, Sendable {
     /// Number of consecutive frames this track has been seen. Used to suppress
     /// single-frame false positives before a box is shown in the overlay.
     var frameCount: Int = 1
+    /// Most recent traffic-light colour classification. Only set for objects
+    /// whose label contains "traffic light"; nil for all other classes.
+    var trafficLightState: TrafficLightState? = nil
+    /// Walk-signal countdown recommendation from OCR. Only set for objects
+    /// whose label comes from the pedestrianSignal model; nil for all others.
+    var walkSignalRecommendation: WalkSignalRecommendation? = nil
 
     var formattedDistance: String {
         DistanceEstimator.formatDistance(distanceMeters)

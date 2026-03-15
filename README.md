@@ -130,6 +130,139 @@ trackedObjects: [TrackedObject]            ← @State on MainActor
 
 ---
 
+## Algorithms & Math
+
+### 1. Distance Estimation — Pinhole Camera Model
+*`Services/DistanceEstimator.swift`*
+
+$$d = \frac{h_{\text{real}}}{2 \cdot \tan\!\left(\dfrac{\text{vFOV}}{2}\right) \cdot r_{\text{box}}}$$
+
+| Symbol | Description | Value |
+|---|---|---|
+| $d$ | Estimated distance (metres) | output, clamped 0.3 – 50 m |
+| $h_{\text{real}}$ | Known real-world object height | person = 1.7 m · car = 1.5 m · bus = 3.2 m … |
+| $\text{vFOV}$ | Vertical field of view (iPhone 13 portrait) | 55° |
+| $r_{\text{box}}$ | Bounding-box height as fraction of frame | 0 – 1 (Vision normalised) |
+
+---
+
+### 2. Depth Anything V2 — Inverse Depth to Metric
+*`Services/DepthEstimationService.swift`*
+
+$$d_{\text{metric}} = \frac{\text{scale}}{\text{relativeDepth} + \text{shift}}$$
+
+| Symbol | Description | Value |
+|---|---|---|
+| $d_{\text{metric}}$ | Metric depth (metres) | output, clamped 0.3 – 30 m |
+| $\text{relativeDepth}$ | Raw model output (higher = closer to camera) | 0 – 1 (relative) |
+| $\text{scale}$ | Empirical calibration constant | 5.0 |
+| $\text{shift}$ | Prevents division by zero near camera | 0.1 |
+
+The model outputs **relative inverse depth** — pixel values closer to 1 are nearer. The calibration converts to approximate metric depth for iPhone 13.
+
+---
+
+### 3. Object Tracking — IoU (Intersection over Union)
+*`Services/ObjectTracker.swift`*
+
+$$\text{IoU}(A, B) = \frac{|A \cap B|}{|A \cup B|} = \frac{|A \cap B|}{|A| + |B| - |A \cap B|}$$
+
+$$|A \cap B| = \max(0,\; x_{\max}^{\min} - x_{\min}^{\max}) \;\times\; \max(0,\; y_{\max}^{\min} - y_{\min}^{\max})$$
+
+Where $x_{\max}^{\min}$ means $\min(\max x_A, \max x_B)$ and $x_{\min}^{\max}$ means $\max(\min x_A, \min x_B)$.
+
+**Threshold:** IoU ≥ 0.25 → same object (track is updated); IoU < 0.25 → new object (new track created).
+
+---
+
+### 4. Bounding Box Smoothing — EMA (Exponential Moving Average)
+*`Services/ObjectTracker.swift`*
+
+$$\hat{b}_t = \alpha \cdot b_t + (1 - \alpha) \cdot \hat{b}_{t-1}$$
+
+Applied independently to each coordinate: $x$, $y$, $\text{width}$, $\text{height}$.
+
+| Symbol | Description | Value |
+|---|---|---|
+| $\hat{b}_t$ | Smoothed box coordinate at frame $t$ | output |
+| $b_t$ | Raw detected box coordinate at frame $t$ | Vision output |
+| $\hat{b}_{t-1}$ | Smoothed box coordinate at frame $t-1$ | previous state |
+| $\alpha$ | Smoothing factor | 0.25 |
+
+Lower $\alpha$ → more temporal smoothing, slower response to movement. $\alpha = 0.25$ was chosen to eliminate flicker while remaining responsive to a walking pedestrian.
+
+---
+
+### 5. Traffic Light Classification — HSV Colour Space
+*`Services/TrafficLightColorClassifier.swift`*
+
+**BGRA → HSV conversion:**
+
+Let $r, g, b \in [0, 1]$, $C_{\max} = \max(r,g,b)$, $\delta = C_{\max} - \min(r,g,b)$.
+
+$$V = C_{\max} \qquad S = \frac{\delta}{C_{\max}} \qquad H = \begin{cases} 60°\times\dfrac{g - b}{\delta} \bmod 360° & C_{\max} = r \\[6pt] 60°\times\left(\dfrac{b - r}{\delta} + 2\right) & C_{\max} = g \\[6pt] 60°\times\left(\dfrac{r - g}{\delta} + 4\right) & C_{\max} = b \end{cases}$$
+
+**Pixel acceptance filter:** $V > 0.20$ AND $S > 0.20$ (bright, saturated pixels only — filters out dark background).
+
+**Hue acceptance windows:**
+
+| Colour | Hue range |
+|---|---|
+| Red | $H \in [0°, 25°] \cup [335°, 360°]$ |
+| Yellow | $H \in [20°, 70°]$ |
+| Green | $H \in [80°, 170°]$ |
+
+**Score per region:**
+
+$$\text{score} = \frac{\text{matching pixels sampled}}{\text{total pixels sampled}}$$
+
+Every 3rd pixel is sampled for performance. The bbox is split into three vertical regions: top 30 % (red), middle 30 % (yellow), bottom 30 % (green). The region with the highest score above **threshold = 0.06** determines the detected colour.
+
+---
+
+### 6. Crosswalk Box Merging — Union Hull
+*`Services/ObjectTracker.swift`*
+
+$$\text{mergedBox} = \Bigl(\min_i x_i^{\min},\;\; \min_i y_i^{\min},\;\; \max_i x_i^{\max} - \min_i x_i^{\min},\;\; \max_i y_i^{\max} - \min_i y_i^{\min}\Bigr)$$
+
+Where $x_i^{\min}, y_i^{\min}, x_i^{\max}, y_i^{\max}$ are the edges of the $i$-th crosswalk bounding box.
+
+The merged track inherits all properties (confidence, distanceMeters, walkSignalRecommendation) from the **highest-confidence** individual detection. All other stripe tracks are discarded.
+
+---
+
+### 7. Vision Coordinate Flip
+*`Services/WalkSignalTimerService.swift`, `Services/TrafficLightColorClassifier.swift`*
+
+Vision framework uses a **bottom-left** origin; UIKit and Core Image use a **top-left** origin. The flip is applied before any pixel-level crop:
+
+$$y_{\text{flipped}} = 1.0 - y_{\text{maxVision}}$$
+
+$$\text{flippedBox} = \bigl(x_{\min},\;\; 1.0 - y_{\max},\;\; w,\;\; h\bigr)$$
+
+For `cropPixelBuffer`, after converting to pixel coordinates the CIImage Y coordinate is additionally flipped:
+
+$$y_{\text{CI}} = H_{\text{buffer}} - y_{\text{maxPixel}}$$
+
+---
+
+### 8. Walk Signal Asymmetric Crop Expansion
+*`Services/WalkSignalTimerService.swift`*
+
+US pedestrian signals have the **countdown number panel immediately to the right** of the figure panel that YOLO detects. The crop is deliberately asymmetric to capture it:
+
+$$x' = \max\!\bigl(0,\; x - 0.10 \cdot w\bigr)$$
+
+$$y' = \max\!\bigl(0,\; y - 0.15 \cdot h\bigr)$$
+
+$$w' = \min\!\bigl(1 - x',\; w \times 1.90\bigr) \qquad \text{(+10\% left, +80\% right)}$$
+
+$$h' = \min\!\bigl(1 - y',\; h \times 1.30\bigr) \qquad \text{(+15\% top and bottom)}$$
+
+All values are normalised (0 – 1) and clamped to frame bounds. After expansion the region is converted to pixel coordinates and passed to `VNRecognizeTextRequest` (`.fast` mode, `minimumTextHeight = 0.08`).
+
+---
+
 ## Models
 
 ### yolo11n — General Object Detection

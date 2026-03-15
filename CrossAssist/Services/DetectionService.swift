@@ -20,30 +20,35 @@ actor DetectionService {
     nonisolated let nmsIoUThreshold: Float = 0.45
 
     private var visionModel: VNCoreMLModel?
+    /// Dedicated pedestrian-signal classifier (pedestrianSignal.mlpackage).
+    /// Optional — if loading fails the service falls back to COCO-only mode.
+    private var pedestrianVisionModel: VNCoreMLModel?
 
-    // Private init — accepts an already-loaded VNCoreMLModel
-    init(model: VNCoreMLModel) {
+    // Private init — accepts both loaded vision models.
+    init(model: VNCoreMLModel, pedestrianModel: VNCoreMLModel?) {
         self.visionModel = model
-        print("✅ DetectionService ready — model injected")
+        self.pedestrianVisionModel = pedestrianModel
+        let tag = pedestrianModel != nil ? "both models" : "yolo11n only"
+        print("✅ DetectionService ready — \(tag) loaded")
     }
 
-    // Static factory — must be called from MainActor context so the
-    // @MainActor-isolated yolo11n generated class is safe to call.
+    // Static factory — must be called from @MainActor context because the
+    // auto-generated Core ML classes (yolo11n, pedestrianSignal) are
+    // @MainActor-isolated.
     @MainActor
     static func create() throws -> DetectionService {
         print("🔵 DetectionService.create() starting...")
         let config = MLModelConfiguration()
         config.computeUnits = .all
 
+        // ── Model 1: yolo11n (required) ──────────────────────────────────
+        let vnModel: VNCoreMLModel
         do {
-            // yolo11n() is @MainActor-isolated — safe to call here
             let mlModel = try yolo11n(configuration: config)
-            let vnModel = try VNCoreMLModel(for: mlModel.model)
-            print("✅ Model loaded successfully via generated class")
-            return DetectionService(model: vnModel)
+            vnModel = try VNCoreMLModel(for: mlModel.model)
+            print("✅ yolo11n loaded via generated class")
         } catch {
-            // Fallback: compile and load from bundle URL
-            print("⚠️ Generated class failed, trying bundle URL: \(error)")
+            print("⚠️ yolo11n generated class failed, trying bundle URL: \(error)")
             guard let modelURL = Bundle.main.url(forResource: "yolo11n", withExtension: "mlpackage") else {
                 print("❌ yolo11n.mlpackage not found in bundle")
                 print("📦 mlpackage files: \(Bundle.main.urls(forResourcesWithExtension: "mlpackage", subdirectory: nil) ?? [])")
@@ -52,10 +57,21 @@ actor DetectionService {
             }
             let compiledURL = try MLModel.compileModel(at: modelURL)
             let mlModel = try MLModel(contentsOf: compiledURL, configuration: config)
-            let vnModel = try VNCoreMLModel(for: mlModel)
-            print("✅ Model loaded successfully via bundle URL")
-            return DetectionService(model: vnModel)
+            vnModel = try VNCoreMLModel(for: mlModel)
+            print("✅ yolo11n loaded via bundle URL")
         }
+
+        // ── Model 2: pedestrianSignal (optional) ─────────────────────────
+        var pedVNModel: VNCoreMLModel? = nil
+        do {
+            let pedModel = try pedestrianSignal(configuration: config)
+            pedVNModel = try VNCoreMLModel(for: pedModel.model)
+            print("✅ pedestrianSignal loaded successfully")
+        } catch {
+            print("⚠️ pedestrianSignal failed to load — running COCO-only: \(error)")
+        }
+
+        return DetectionService(model: vnModel, pedestrianModel: pedVNModel)
     }
 
     func detect(frame: CameraFrame) async -> [DetectedObject] {
@@ -66,31 +82,98 @@ actor DetectionService {
 
         print("🔍 detect() called")
 
-        var results: [DetectedObject] = []
+        // ── Model 1: yolo11n — COCO object detection ─────────────────────
 
-        let request = VNCoreMLRequest(model: model) { request, error in
+        // Pedestrian-safety classes shown at normal confidence threshold.
+        let alwaysShow: Set<String> = [
+            "person", "bicycle", "car", "motorcycle",
+            "bus", "truck", "traffic light", "stop sign"
+        ]
+        // Path-obstacle classes only shown when confidence is high enough to
+        // avoid false positives on cluttered backgrounds.
+        let obstacleLabels: Set<String> = ["bench", "chair", "couch", "sofa"]
+        let obstacleThreshold: Float = 0.55
+
+        var yoloResults: [DetectedObject] = []
+
+        let yoloRequest = VNCoreMLRequest(model: model) { request, error in
             if let error = error {
-                print("❌ Vision request error: \(error)")
+                print("❌ yolo11n Vision request error: \(error)")
                 return
             }
-            guard let observations = request.results as? [VNRecognizedObjectObservation] else {
-                print("⚠️ No VNRecognizedObjectObservation results")
-                return
-            }
-            print("✅ Got \(observations.count) raw observations")
-            results = observations
-                .filter { $0.confidence >= 0.40 }
-                .map { obs in
-                    DetectedObject(
+            guard let observations = request.results as? [VNRecognizedObjectObservation] else { return }
+            print("✅ yolo11n: \(observations.count) raw observations")
+
+            var filtered: [DetectedObject] = []
+            for obs in observations {
+                guard obs.confidence >= 0.40 else { continue }
+                let raw = obs.labels.first?.identifier.lowercased() ?? ""
+
+                if alwaysShow.contains(raw) {
+                    let bbox = obs.boundingBox
+
+                    // ── Person-specific false-positive filters ──────────────
+                    // Walk-signal figures are square; real pedestrians are tall.
+                    if raw == "person" {
+                        let aspectRatio = bbox.height / bbox.width
+                        guard aspectRatio > 1.4 else { continue }
+                        guard (bbox.width * bbox.height) >= 0.005 else { continue }
+                    }
+                    // ────────────────────────────────────────────────────────
+
+                    filtered.append(DetectedObject(
                         id: UUID(),
-                        label: obs.labels.first?.identifier ?? "unknown",
+                        label: canonicalLabel(raw),
+                        confidence: obs.confidence,
+                        boundingBox: bbox
+                    ))
+                } else if obstacleLabels.contains(raw), obs.confidence >= obstacleThreshold {
+                    filtered.append(DetectedObject(
+                        id: UUID(),
+                        label: "obstacle",
                         confidence: obs.confidence,
                         boundingBox: obs.boundingBox
-                    )
+                    ))
                 }
+                // All other COCO classes are discarded completely.
+            }
+            yoloResults = filtered
+        }
+        yoloRequest.imageCropAndScaleOption = .scaleFill
+
+        // ── Model 2: pedestrianSignal — walk / don't walk classifier ─────
+
+        var pedResults: [DetectedObject] = []
+
+        var requests: [VNRequest] = [yoloRequest]
+
+        if let pedModel = pedestrianVisionModel {
+            let pedRequest = VNCoreMLRequest(model: pedModel) { request, error in
+                if let error = error {
+                    print("❌ pedestrianSignal Vision request error: \(error)")
+                    return
+                }
+                guard let observations = request.results as? [VNRecognizedObjectObservation] else { return }
+                print("✅ pedestrianSignal: \(observations.count) raw observations")
+
+                var filtered: [DetectedObject] = []
+                for obs in observations {
+                    guard obs.confidence >= 0.40 else { continue }
+                    let raw = obs.labels.first?.identifier.lowercased() ?? ""
+                    filtered.append(DetectedObject(
+                        id: UUID(),
+                        label: pedestrianLabel(raw),
+                        confidence: obs.confidence,
+                        boundingBox: obs.boundingBox
+                    ))
+                }
+                pedResults = filtered
+            }
+            pedRequest.imageCropAndScaleOption = .scaleFill
+            requests.append(pedRequest)
         }
 
-        request.imageCropAndScaleOption = .scaleFill
+        // ── Run both requests on the same handler in one pass ─────────────
 
         let handler = VNImageRequestHandler(
             cvPixelBuffer: frame.pixelBuffer,
@@ -99,12 +182,41 @@ actor DetectionService {
         )
 
         do {
-            try handler.perform([request])
+            try handler.perform(requests)
         } catch {
             print("❌ VNImageRequestHandler error: \(error)")
         }
 
-        print("✅ detect() returning \(results.count) objects")
-        return results
+        let merged = yoloResults + pedResults
+        print("✅ detect() returning \(merged.count) objects (\(yoloResults.count) COCO + \(pedResults.count) signal)")
+        return merged
+    }
+}
+
+// MARK: - Label remapping
+
+/// Maps raw COCO class names to the canonical labels used throughout the app.
+/// Groups semantically identical classes (car / motorcycle / bus / truck → "vehicle")
+/// so the rest of the UI only needs to handle a small, well-known set of strings.
+private func canonicalLabel(_ raw: String) -> String {
+    switch raw {
+    case "car", "motorcycle", "bus", "truck": return "vehicle"
+    case "person":        return "person"
+    case "bicycle":       return "bicycle"
+    case "traffic light": return "traffic light"
+    case "stop sign":     return "stop sign"
+    default:              return raw   // bench/chair/couch are already remapped to "obstacle" by the caller
+    }
+}
+
+/// Maps raw pedestrianSignal model class names to display labels.
+/// Classes: 0=green, 1=pedestrian traffic light, 2=red, 3=signal-light
+private func pedestrianLabel(_ raw: String) -> String {
+    switch raw {
+    case "green":                       return "GREEN LIGHT"
+    case "pedestrian traffic light":    return "WALK SIGNAL"
+    case "red":                         return "RED LIGHT"
+    case "signal-light":                return "SIGNAL"
+    default:                            return raw
     }
 }

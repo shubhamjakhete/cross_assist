@@ -208,6 +208,11 @@ actor DetectionService {
                     let raw = obs.labels.first?.identifier.lowercased() ?? ""
                     // Only emit labels that aren't duplicates of yolo11n classes.
                     guard let label = crosswalkLabel(raw) else { continue }
+                    // CROSSWALK requires a higher threshold to suppress false
+                    // positives on checkered patterns, floor tiles, and fabric.
+                    if label == "CROSSWALK" {
+                        guard obs.confidence >= 0.55 else { continue }
+                    }
                     filtered.append(DetectedObject(
                         id: UUID(),
                         label: label,

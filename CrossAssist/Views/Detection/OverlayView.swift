@@ -164,7 +164,10 @@ struct OverlayView: View {
                         x: obj.label == "CROSSWALK"
                             ? rect.midX
                             : rect.minX + pillWidth(text: text) / 2 + 4,
-                        y: rect.minY + 14
+                        // Clamp to 100 pt from the top so pills on partially
+                        // off-screen boxes (e.g. overhead traffic lights) never
+                        // overlap the top bar UI elements.
+                        y: max(rect.minY + 14, 100)
                     )
             }
         }

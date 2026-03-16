@@ -22,9 +22,11 @@ struct MainDetectionView: View {
     @State private var showCrossing      = false
     @State private var showEmergency     = false
     @State private var showHistory       = false
-    /// Shown briefly when the crosswalkDetection model sees a crosswalk.
-    /// Auto-dismissed after 5 seconds.
-    @State private var showCrossingHint  = false
+    /// True whenever the current frame contains a confirmed CROSSWALK detection.
+    /// Drives the hint banner directly — no timer, no stuck state.
+    private var crosswalkDetected: Bool {
+        trackedObjects.contains { $0.label == "CROSSWALK" }
+    }
 
     private let objectTracker = ObjectTracker()
 
@@ -102,7 +104,7 @@ struct MainDetectionView: View {
                         .allowsHitTesting(false)
                         .padding(.bottom, 12)
 
-                    if showCrossingHint {
+                    if crosswalkDetected {
                         Text("Crosswalk detected — tap map to start guidance")
                             .font(.system(size: 13, weight: .medium))
                             .foregroundStyle(.white)
@@ -180,17 +182,8 @@ struct MainDetectionView: View {
                     let zebraDetected = tracked.contains { $0.label.lowercased().contains("zebra") }
                     if zebraDetected && !showCrossing { showCrossing = true }
 
-                    // Show hint banner when crosswalkDetection model sees a crosswalk.
-                    let crosswalkDetected = tracked.contains { $0.label == "CROSSWALK" }
-                    if crosswalkDetected && !showCrossingHint {
-                        showCrossingHint = true
-                        Task { @MainActor in
-                            try? await Task.sleep(for: .seconds(5))
-                            withAnimation(.easeInOut(duration: 0.4)) {
-                                showCrossingHint = false
-                            }
-                        }
-                    }
+                    // crosswalkDetected is a computed property on stableObjects —
+                    // the banner appears / disappears automatically with the frame.
                 }
 
                 // ── Step 2: Depth Anything V2 enrichment (every 8th frame, fully detached) ──

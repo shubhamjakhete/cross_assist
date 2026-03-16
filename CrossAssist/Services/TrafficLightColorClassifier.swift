@@ -86,7 +86,9 @@ struct TrafficLightColorClassifier {
         let yellowScore = analyzeRegion(pixelBuffer: pixelBuffer, region: middleRegion, targetHue: .yellow)
         let greenScore  = analyzeRegion(pixelBuffer: pixelBuffer, region: bottomRegion, targetHue: .green)
 
-        let threshold: Float = 0.06
+        // Lowered from 0.06 → 0.04: real-world traffic lights seen through a
+        // phone camera have lower pixel-count ratios than ideal test images.
+        let threshold: Float = 0.04
 
         let candidates: [(TrafficLightState.Color, Float)] = [
             (.red, redScore), (.yellow, yellowScore), (.green, greenScore)

@@ -42,14 +42,18 @@ struct LeftPanelView: View {
     /// Priority order: crosswalk model > pedestrianSignal model > HSV colour.
     private var liveTrafficState: TrafficCardState {
         if trackedObjects.contains(where: { $0.label == "CROSSWALK"   }) { return .crosswalk }
+        // pedestrianSignal labels: RED LIGHT checked before WALK SIGNAL so a red
+        // signal is never overridden by a concurrent .safeNoCountdown rec.
+        if trackedObjects.contains(where: { $0.label == "RED LIGHT"  }) { return .red }
         if trackedObjects.contains(where: { $0.label == "WALK SIGNAL" }) { return .walk }
         if trackedObjects.contains(where: { $0.label == "GREEN LIGHT" }) { return .green }
-        if trackedObjects.contains(where: { $0.label == "RED LIGHT"  }) { return .red }
         if trackedObjects.contains(where: { $0.label == "SIGNAL"     }) { return .unknown }
         switch trafficLight?.trafficLightState?.color {
         case .red:    return .red
         case .yellow: return .yellow
-        case .green:  return .green
+        // Vehicle green ≠ pedestrian safe to cross — show SLOW (yellow card)
+        // so the user waits for the walk signal before stepping off the kerb.
+        case .green:  return .yellow
         default:      return .unknown
         }
     }
@@ -202,8 +206,20 @@ struct LeftPanelView: View {
 
     /// Card 2 — shows countdown OCR result when available; falls back to
     /// label-based colour state otherwise.
+    ///
+    /// Priority rules:
+    ///  1. RED LIGHT label → always show WAIT (never override with OCR).
+    ///  2. Countdown rec with explicit timing (.safeToCross / .hurry / .tooLate
+    ///     / .waitForNext) → show countdown card.
+    ///  3. .safeNoCountdown is suppressed here — it only means "no number was
+    ///     visible", NOT "safe to cross". The label-based card handles the
+    ///     correct state (WALK for WALK SIGNAL, SAFE for GREEN LIGHT, etc.).
+    ///  4. Everything else → label-based card (uses displayedTrafficState).
     @ViewBuilder private var trafficLightCard: some View {
-        if let rec = displayedSignalRec, rec != .unknown {
+        if let rec = displayedSignalRec,
+           rec != .unknown,
+           rec != .safeNoCountdown,
+           displayedTrafficState != .red {
             signalCountdownCard(for: rec)
         } else {
             labelBasedTrafficCard

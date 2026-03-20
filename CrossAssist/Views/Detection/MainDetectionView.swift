@@ -18,12 +18,13 @@ struct MainDetectionView: View {
     @State private var detectionService: DetectionService?
     @State private var depthService: DepthEstimationService?
     @State private var depthFrameCounter = 0
-    @State private var showSettings      = false
-    @State private var showCrossing      = false
-    @State private var showEmergency     = false
-    @State private var showHistory       = false
+    @State private var showSettings  = false
+    @State private var showCrossing  = false
+    @State private var showEmergency = false
+    @State private var showHistory   = false
+
     /// True whenever the current frame contains a confirmed CROSSWALK detection.
-    /// Drives the hint banner directly — no timer, no stuck state.
+    /// Drives the hint banner — no auto-open, no stuck state.
     private var crosswalkDetected: Bool {
         trackedObjects.contains { $0.label == "CROSSWALK" }
     }
@@ -116,7 +117,7 @@ struct MainDetectionView: View {
                             .padding(.horizontal, 12)
                             .padding(.bottom, 8)
                             .transition(.opacity)
-                            .allowsHitTesting(false)
+                            .onTapGesture { showCrossing = true }
                     }
 
                     BottomActionBar(
@@ -179,11 +180,9 @@ struct MainDetectionView: View {
                 await MainActor.run {
                     trackedObjects = tracked
                     print("🟢 Tracked objects count: \(trackedObjects.count)")
-                    let zebraDetected = tracked.contains { $0.label.lowercased().contains("zebra") }
-                    if zebraDetected && !showCrossing { showCrossing = true }
-
-                    // crosswalkDetected is a computed property on stableObjects —
-                    // the banner appears / disappears automatically with the frame.
+                    // crosswalkDetected is a computed property — the hint banner
+                    // appears / disappears automatically with the frame.
+                    // CrossingGuidanceView opens only via explicit user tap.
                 }
 
                 // ── Step 2: Depth Anything V2 enrichment (every 8th frame, fully detached) ──

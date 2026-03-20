@@ -58,21 +58,12 @@ struct LeftPanelView: View {
         }
     }
 
-    /// Best walk-signal countdown recommendation across all tracked signal objects.
-    private var activeSignalRec: WalkSignalRecommendation? {
-        trackedObjects
-            .compactMap { $0.walkSignalRecommendation }
-            .filter { $0 != .unknown }
-            .max(by: { $0.urgency < $1.urgency })
-    }
-
     // MARK: - Debounced displayed state (what the cards actually show)
 
     @State private var displayedPersonDistance: String = "--"
     @State private var displayedPersonIsClose: Bool = false
     @State private var displayedTrafficState: TrafficCardState = .unknown
     @State private var displayedDangerCount: Int = 0
-    @State private var displayedSignalRec: WalkSignalRecommendation? = nil
 
     // Pending values + per-field debounce clocks
     @State private var pendingPersonDistance: String = "--"
@@ -85,16 +76,11 @@ struct LeftPanelView: View {
     @State private var pendingDangerCount: Int = 0
     @State private var pendingDangerTime: Date = Date()
 
-    @State private var pendingSignalRec: WalkSignalRecommendation? = nil
-    @State private var pendingSignalTime: Date = Date()
-
     private let debounceInterval: TimeInterval = 0.3
     private let panelTimer = Timer.publish(every: 0.1, on: .main, in: .common).autoconnect()
 
-    // Pulse animations — driven from the debounced values so they don't
-    // throb on every detection frame.
+    // Pulse animation — driven from the debounced danger count.
     @State private var dangerPulse = false
-    @State private var countdownPulse = false
 
     // MARK: - Body
 
@@ -126,12 +112,6 @@ struct LeftPanelView: View {
                 pendingDangerTime  = Date()
             }
         }
-        .onChange(of: activeSignalRec) { _, newRec in
-            if newRec != displayedSignalRec {
-                pendingSignalRec  = newRec
-                pendingSignalTime = Date()
-            }
-        }
         // Commit pending values once each has been stable for debounceInterval
         .onReceive(panelTimer) { _ in
             let now = Date()
@@ -155,12 +135,6 @@ struct LeftPanelView: View {
                     displayedDangerCount = pendingDangerCount
                 }
             }
-            if pendingSignalRec != displayedSignalRec &&
-               now.timeIntervalSince(pendingSignalTime) >= debounceInterval {
-                withAnimation(.easeInOut(duration: 0.2)) {
-                    displayedSignalRec = pendingSignalRec
-                }
-            }
         }
         // Drive danger pulse from the debounced count
         .onChange(of: displayedDangerCount) { _, newCount in
@@ -171,17 +145,6 @@ struct LeftPanelView: View {
                 }
             } else {
                 dangerPulse = false
-            }
-        }
-        // Drive countdown pulse for high-urgency signal states
-        .onChange(of: displayedSignalRec) { _, newRec in
-            if (newRec?.urgency ?? -1) >= 2 {
-                countdownPulse = false
-                withAnimation(.easeInOut(duration: 0.6).repeatForever(autoreverses: true)) {
-                    countdownPulse = true
-                }
-            } else {
-                withAnimation { countdownPulse = false }
             }
         }
     }
@@ -204,112 +167,15 @@ struct LeftPanelView: View {
         }
     }
 
-    /// Card 2 — shows countdown OCR result when available; falls back to
-    /// label-based colour state otherwise.
-    ///
-    /// Priority rules:
-    ///  1. RED LIGHT label → always show WAIT (never override with OCR).
-    ///  2. Countdown rec with explicit timing (.safeToCross / .hurry / .tooLate
-    ///     / .waitForNext) → show countdown card.
-    ///  3. .safeNoCountdown is suppressed here — it only means "no number was
-    ///     visible", NOT "safe to cross". The label-based card handles the
-    ///     correct state (WALK for WALK SIGNAL, SAFE for GREEN LIGHT, etc.).
-    ///  4. Everything else → label-based card (uses displayedTrafficState).
+    /// Card 2 — driven entirely by the pedestrianSignal model label and HSV
+    /// traffic-light colour.  Timer countdown data is now displayed exclusively
+    /// in CrossingGuidanceView which auto-presents when a timer is detected.
     @ViewBuilder private var trafficLightCard: some View {
-        if let rec = displayedSignalRec,
-           rec != .unknown,
-           rec != .safeNoCountdown,
-           displayedTrafficState != .red {
-            signalCountdownCard(for: rec)
-        } else {
-            labelBasedTrafficCard
-        }
+        labelBasedTrafficCard
     }
 
-    /// Countdown-aware card driven by `WalkSignalRecommendation`.
-    @ViewBuilder private func signalCountdownCard(
-        for rec: WalkSignalRecommendation
-    ) -> some View {
-        let bg = Color(hex: rec.colorHex).opacity(0.85)
-        switch rec {
-        case .safeToCross(let s):
-            cardBase(background: bg) {
-                Text("\(s)")
-                    .font(.system(size: 32, weight: .heavy))
-                    .foregroundStyle(.white)
-                    .lineLimit(1)
-                Text("sec left")
-                    .font(.system(size: 10))
-                    .foregroundStyle(Color.white.opacity(0.7))
-                    .lineLimit(1)
-                Text("CROSS NOW")
-                    .font(.system(size: 10, weight: .bold))
-                    .foregroundStyle(.white)
-                    .lineLimit(1)
-            }
-        case .hurry(let s):
-            cardBase(background: bg) {
-                Text("\(s)")
-                    .font(.system(size: 32, weight: .heavy))
-                    .foregroundStyle(.white)
-                    .lineLimit(1)
-                    .scaleEffect(countdownPulse ? 1.05 : 1.0)
-                Text("sec left")
-                    .font(.system(size: 10))
-                    .foregroundStyle(Color.white.opacity(0.7))
-                    .lineLimit(1)
-                Text("HURRY")
-                    .font(.system(size: 10, weight: .bold))
-                    .foregroundStyle(.white)
-                    .lineLimit(1)
-            }
-        case .tooLate(let s):
-            cardBase(background: bg) {
-                Text("\(s)")
-                    .font(.system(size: 32, weight: .heavy))
-                    .foregroundStyle(.white)
-                    .lineLimit(1)
-                    .scaleEffect(countdownPulse ? 1.05 : 1.0)
-                Text("sec left")
-                    .font(.system(size: 10))
-                    .foregroundStyle(Color.white.opacity(0.7))
-                    .lineLimit(1)
-                Text("WAIT")
-                    .font(.system(size: 10, weight: .bold))
-                    .foregroundStyle(.white)
-                    .lineLimit(1)
-            }
-        case .waitForNext:
-            cardBase(background: bg) {
-                Image(systemName: "hand.raised.fill")
-                    .font(.system(size: 20))
-                    .foregroundStyle(.white)
-                    .scaleEffect(countdownPulse ? 1.05 : 1.0)
-                Text("WAIT")
-                    .font(.system(size: 13, weight: .bold))
-                    .foregroundStyle(.white)
-                    .lineLimit(1)
-                Text("next signal")
-                    .font(.system(size: 9))
-                    .foregroundStyle(Color.white.opacity(0.7))
-                    .lineLimit(1)
-            }
-        case .safeNoCountdown:
-            cardBase(background: bg) {
-                Image(systemName: "figure.walk")
-                    .font(.system(size: 20))
-                    .foregroundStyle(.white)
-                Text("WALK")
-                    .font(.system(size: 13, weight: .bold))
-                    .foregroundStyle(.white)
-                    .lineLimit(1)
-            }
-        case .unknown:
-            labelBasedTrafficCard
-        }
-    }
-
-    /// Fallback card — driven by label/HSV colour state when no OCR result is available.
+    /// Card — driven by label/HSV colour state (pedestrianSignal model labels
+    /// take priority over HSV vehicle-light classification).
     @ViewBuilder private var labelBasedTrafficCard: some View {
         switch displayedTrafficState {
         case .red:

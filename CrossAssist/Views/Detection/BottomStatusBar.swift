@@ -12,14 +12,11 @@ import SwiftUI
 /// Associated values use pre-formatted strings so Equatable comparison is
 /// quantized to display resolution (e.g. "1.4m") rather than raw Float,
 /// preventing micro-jitter from blocking the debounce commit.
+/// Timer-based signal states have been removed — they now live exclusively
+/// in CrossingGuidanceView which auto-presents when a timer is detected.
 enum StatusType: Equatable {
     case critical(String, String)    // label, formattedDistance
-    case timerTooLate(Int)           // seconds remaining
-    case timerWaitForNext
-    case timerHurry(Int)             // seconds remaining
-    case timerSafeToCross(Int)       // seconds remaining
     case dangerous(String, String)
-    case timerSafeNoCountdown
     case zebra
     case crosswalkDetected
     case scanning
@@ -49,34 +46,14 @@ struct BottomStatusBar: View {
             return .critical(critical.label, critical.formattedDistance)
         }
 
-        // Compute best walk-signal recommendation once for tiers 2–5 & 7.
-        let timerRec = trackedObjects
-            .compactMap { $0.walkSignalRecommendation }
-            .filter { $0 != .unknown }
-            .max(by: { $0.urgency < $1.urgency })
-
-        // 2–5. Timer-based signal priorities.
-        if let rec = timerRec {
-            switch rec {
-            case .tooLate(let s):     return .timerTooLate(s)
-            case .waitForNext:        return .timerWaitForNext
-            case .hurry(let s):       return .timerHurry(s)
-            case .safeToCross(let s): return .timerSafeToCross(s)
-            default: break
-            }
-        }
-
-        // 6. Dangerous proximity.
+        // 2. Dangerous proximity.
         if let dangerous = trackedObjects
             .filter({ $0.isDangerous })
             .min(by: { ($0.distanceMeters ?? 99) < ($1.distanceMeters ?? 99) }) {
             return .dangerous(dangerous.label, dangerous.formattedDistance)
         }
 
-        // 7. Solid WALK figure (no countdown visible).
-        if timerRec == .safeNoCountdown { return .timerSafeNoCountdown }
-
-        // 8. Zebra / crosswalk stripe label from yolo11n.
+        // 3. Zebra / crosswalk stripe label from yolo11n.
         if trackedObjects.contains(where: {
             $0.label.lowercased().contains("zebra") ||
             $0.label.lowercased().contains("crossing")
@@ -84,15 +61,15 @@ struct BottomStatusBar: View {
             return .zebra
         }
 
-        // 9. Crosswalk detected by dedicated crosswalkDetection model.
+        // 4. Crosswalk detected by dedicated crosswalkDetection model.
         if trackedObjects.contains(where: { $0.label == "CROSSWALK" }) {
             return .crosswalkDetected
         }
 
-        // 10. Nothing detected yet.
+        // 5. Nothing detected yet.
         if trackedObjects.isEmpty { return .scanning }
 
-        // 10. Default — scene has objects but no hazards.
+        // 6. Default — scene has objects but no hazards.
         return .clear
     }
 
@@ -102,18 +79,8 @@ struct BottomStatusBar: View {
         switch displayedStatus {
         case .critical(let label, let dist):
             return ("⚠ STOP — \(label.uppercased()) at \(dist)", Color(hex: "EF4444"))
-        case .timerTooLate(let s):
-            return ("⚠ Too late • \(s)s — wait for next", Color(hex: "EF4444"))
-        case .timerWaitForNext:
-            return ("⚠ Wait for next signal", Color(hex: "EF4444"))
-        case .timerHurry(let s):
-            return ("HURRY • \(s)s left to cross", Color(hex: "F97316"))
-        case .timerSafeToCross(let s):
-            return ("✓ Cross now • \(s)s remaining", Color(hex: "22C55E"))
         case .dangerous(let label, let dist):
             return ("⚠ \(label.uppercased()) nearby — \(dist)", Color(hex: "F97316"))
-        case .timerSafeNoCountdown:
-            return ("Safe to cross ✓", Color(hex: "22C55E"))
         case .zebra:
             return ("CROSSWALK DETECTED", Color(hex: "3B82F6"))
         case .crosswalkDetected:
@@ -163,18 +130,13 @@ struct BottomStatusBar: View {
     /// ignoring their associated values (e.g. label / distance).
     private func sameCategory(_ a: StatusType, _ b: StatusType) -> Bool {
         switch (a, b) {
-        case (.critical,             .critical):             return true
-        case (.timerTooLate,         .timerTooLate):         return true
-        case (.timerWaitForNext,     .timerWaitForNext):     return true
-        case (.timerHurry,           .timerHurry):           return true
-        case (.timerSafeToCross,     .timerSafeToCross):     return true
-        case (.dangerous,            .dangerous):            return true
-        case (.timerSafeNoCountdown, .timerSafeNoCountdown): return true
-        case (.zebra,                .zebra):                return true
-        case (.crosswalkDetected,    .crosswalkDetected):    return true
-        case (.scanning,             .scanning):             return true
-        case (.clear,                .clear):                return true
-        default:                                             return false
+        case (.critical,          .critical):          return true
+        case (.dangerous,         .dangerous):         return true
+        case (.zebra,             .zebra):             return true
+        case (.crosswalkDetected, .crosswalkDetected): return true
+        case (.scanning,          .scanning):          return true
+        case (.clear,             .clear):             return true
+        default:                                       return false
         }
     }
 }

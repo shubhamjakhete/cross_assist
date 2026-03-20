@@ -17,11 +17,22 @@ enum CrossingStatus { case safe, wait, checking }
 struct CrossingGuidanceView: View {
     @Environment(\.dismiss) private var dismiss
 
+    /// Live timer recommendation from the parent detection view.
+    /// nil when opened manually (shows default SAFE state).
+    var timerRecommendation: WalkSignalRecommendation? = nil
+    /// Distance to the nearest pedestrian signal in metres, if available.
+    var signalDistance: Float? = nil
+
     @State private var crossingStatus: CrossingStatus  = .safe
     @State private var crossingProgress: Double        = 0.35
     @State private var pulse                           = false
     @State private var showHistory                     = false
     @State private var showSettings                    = false
+
+    /// Tracks the initial countdown so progress can be computed as a ratio.
+    @State private var initialSeconds: Int = 0
+    /// 0.0 (done) → 1.0 (full) drives the progress bar.
+    @State private var timerProgress: Double = 1.0
 
     // MARK: - Body
 
@@ -46,7 +57,33 @@ struct CrossingGuidanceView: View {
                 tabBar
             }
         }
-        .onAppear { pulse = true }
+        .onAppear {
+            pulse = false
+            withAnimation(.easeInOut(duration: pulseDuration).repeatForever(autoreverses: true)) {
+                pulse = true
+            }
+        }
+        .onChange(of: timerRecommendation) { _, rec in
+            // Capture initial seconds on first non-nil detection
+            if let s = rec?.detectedSeconds, initialSeconds == 0 {
+                initialSeconds = s
+            }
+            // Update progress bar
+            if let s = rec?.detectedSeconds, initialSeconds > 0 {
+                withAnimation(.easeInOut(duration: 0.3)) {
+                    timerProgress = Double(s) / Double(initialSeconds)
+                }
+            } else if rec == .waitForNext {
+                withAnimation(.easeInOut(duration: 0.3)) { timerProgress = 0.0 }
+            } else if rec == .safeNoCountdown {
+                withAnimation(.easeInOut(duration: 0.3)) { timerProgress = 1.0 }
+            }
+            // Restart pulse at the new urgency-based speed
+            pulse = false
+            withAnimation(.easeInOut(duration: pulseDuration).repeatForever(autoreverses: true)) {
+                pulse = true
+            }
+        }
         .fullScreenCover(isPresented: $showHistory) {
             PlaceholderView(title: "History")
         }
@@ -94,25 +131,38 @@ struct CrossingGuidanceView: View {
                 .fill(outerRingColor)
                 .frame(width: 160, height: 160)
                 .scaleEffect(pulse ? 1.05 : 1.0)
-                .animation(.easeInOut(duration: 1.5).repeatForever(autoreverses: true), value: pulse)
+                .animation(.easeInOut(duration: pulseDuration).repeatForever(autoreverses: true), value: pulse)
 
             // Middle ring
             Circle()
                 .fill(middleRingColor.opacity(0.6))
                 .frame(width: 124, height: 124)
                 .scaleEffect(pulse ? 1.05 : 1.0)
-                .animation(.easeInOut(duration: 1.5).repeatForever(autoreverses: true), value: pulse)
+                .animation(.easeInOut(duration: pulseDuration).repeatForever(autoreverses: true), value: pulse)
 
             // Inner circle
             Circle()
                 .fill(innerCircleColor)
                 .frame(width: 88, height: 88)
                 .scaleEffect(pulse ? 1.05 : 1.0)
-                .animation(.easeInOut(duration: 1.5).repeatForever(autoreverses: true), value: pulse)
+                .animation(.easeInOut(duration: pulseDuration).repeatForever(autoreverses: true), value: pulse)
 
-            Image(systemName: "figure.walk")
-                .font(.system(size: 36))
-                .foregroundStyle(.white)
+            // Show live countdown number when seconds are available;
+            // fall back to the walking figure icon otherwise.
+            if let seconds = timerRecommendation?.detectedSeconds {
+                VStack(spacing: 2) {
+                    Text("\(seconds)")
+                        .font(.system(size: 52, weight: .heavy))
+                        .foregroundColor(.white)
+                    Text("sec")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(.white.opacity(0.8))
+                }
+            } else {
+                Image(systemName: "figure.walk")
+                    .font(.system(size: 36))
+                    .foregroundStyle(.white)
+            }
         }
         .padding(.top, 16)
     }
@@ -193,17 +243,17 @@ struct CrossingGuidanceView: View {
                 Spacer()
 
                 HStack(alignment: .lastTextBaseline, spacing: 4) {
-                    Text("12m")
+                    Text(formattedSignalDistance)
                         .font(.system(size: 22, weight: .bold))
-                        .foregroundStyle(Color(hex: "2563EB"))
+                        .foregroundStyle(progressBarColor)
                     Text("left")
                         .font(.system(size: 14))
                         .foregroundStyle(Color(hex: "9CA3AF"))
                 }
             }
 
-            ProgressView(value: crossingProgress, total: 1.0)
-                .tint(Color(hex: "2563EB"))
+            ProgressView(value: timerProgress, total: 1.0)
+                .tint(progressBarColor)
                 .scaleEffect(x: 1, y: 2.5, anchor: .center)
                 .background(
                     RoundedRectangle(cornerRadius: 4)
@@ -294,6 +344,14 @@ struct CrossingGuidanceView: View {
     // MARK: - Computed Style Helpers
 
     private var innerCircleColor: Color {
+        if let rec = timerRecommendation {
+            switch rec {
+            case .safeToCross, .safeNoCountdown: return Color(hex: "16A34A")
+            case .hurry:                         return Color(hex: "F97316")
+            case .tooLate, .waitForNext:         return Color(hex: "EF4444")
+            default: break
+            }
+        }
         switch crossingStatus {
         case .safe:     return Color(hex: "16A34A")
         case .wait:     return Color(hex: "DC2626")
@@ -302,6 +360,14 @@ struct CrossingGuidanceView: View {
     }
 
     private var middleRingColor: Color {
+        if let rec = timerRecommendation {
+            switch rec {
+            case .safeToCross, .safeNoCountdown: return Color(hex: "14532D")
+            case .hurry:                         return Color(hex: "431407")
+            case .tooLate, .waitForNext:         return Color(hex: "450A0A")
+            default: break
+            }
+        }
         switch crossingStatus {
         case .safe:     return Color(hex: "14532D")
         case .wait:     return Color(hex: "450A0A")
@@ -314,6 +380,16 @@ struct CrossingGuidanceView: View {
     }
 
     private var statusTitle: String {
+        if let rec = timerRecommendation {
+            switch rec {
+            case .safeToCross:    return "Safe to cross"
+            case .hurry:          return "Hurry now"
+            case .tooLate,
+                 .waitForNext:    return "Please wait"
+            case .safeNoCountdown: return "Safe to cross now"
+            default: break
+            }
+        }
         switch crossingStatus {
         case .safe:     return "Safe to cross now"
         case .wait:     return "Please wait"
@@ -322,6 +398,14 @@ struct CrossingGuidanceView: View {
     }
 
     private var statusTitleColor: Color {
+        if let rec = timerRecommendation {
+            switch rec {
+            case .safeToCross, .safeNoCountdown: return .white
+            case .hurry:                         return Color(hex: "F97316")
+            case .tooLate, .waitForNext:         return Color(hex: "EF4444")
+            default: break
+            }
+        }
         switch crossingStatus {
         case .safe:     return .white
         case .wait:     return Color(hex: "EF4444")
@@ -330,11 +414,47 @@ struct CrossingGuidanceView: View {
     }
 
     private var statusSubtitle: String {
+        if let rec = timerRecommendation {
+            switch rec {
+            case .safeToCross(let s):   return "\(s) seconds remaining"
+            case .hurry(let s):         return "Only \(s)s left — cross quickly"
+            case .tooLate(let s):       return "\(s)s left — too late to cross safely"
+            case .waitForNext:          return "Wait for the next signal"
+            case .safeNoCountdown:      return "Clear path detected"
+            default: break
+            }
+        }
         switch crossingStatus {
         case .safe:     return "Clear path detected in front of you"
         case .wait:     return "Vehicles detected — do not cross"
         case .checking: return "Scanning for obstacles..."
         }
+    }
+
+    /// Pulse animation duration scales with urgency — fastest for critical states.
+    private var pulseDuration: Double {
+        guard let rec = timerRecommendation else { return 1.5 }
+        switch rec {
+        case .safeToCross, .safeNoCountdown: return 1.5
+        case .hurry:                         return 0.8
+        case .tooLate, .waitForNext:         return 0.4
+        default:                             return 1.5
+        }
+    }
+
+    /// Progress bar colour: blue → orange → red as time runs out.
+    private var progressBarColor: Color {
+        if timerProgress > 0.5  { return Color(hex: "2563EB") }
+        if timerProgress > 0.25 { return Color(hex: "F97316") }
+        return Color(hex: "EF4444")
+    }
+
+    /// Formatted signal distance string from live camera data.
+    private var formattedSignalDistance: String {
+        guard let dist = signalDistance else { return "--" }
+        return dist < 10
+            ? String(format: "%.1fm", dist)
+            : String(format: "%.0fm", dist)
     }
 }
 

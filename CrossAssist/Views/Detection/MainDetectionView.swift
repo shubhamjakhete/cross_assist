@@ -185,9 +185,11 @@ struct MainDetectionView: View {
                     // CrossingGuidanceView opens only via explicit user tap.
                 }
 
-                // ── Step 2: Depth Anything V2 enrichment (every 8th frame, fully detached) ──
+                // ── Step 2: Depth Anything V2 enrichment (every 15th frame, only when
+                // something is heuristically within 4 m — saves GPU/CPU when scene is far) ──
                 depthFrameCounter += 1
-                guard depthFrameCounter % 8 == 0, !tracked.isEmpty else { return }
+                let hasNearbyObjects = tracked.contains { ($0.distanceMeters ?? 99) < 4.0 }
+                guard depthFrameCounter % 15 == 0, hasNearbyObjects, !tracked.isEmpty else { return }
                 guard let depthSvc = depthService else { return }
 
                 // Capture Sendable values before leaving @MainActor context

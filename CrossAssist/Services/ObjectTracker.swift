@@ -14,6 +14,8 @@ actor ObjectTracker {
     private var tracks: [Int: TrackedObject] = [:]
     private var nextId = 0
     private var depthService: DepthEstimationService?
+    /// Global counter for throttling Vision OCR on pedestrian signals (~every 10th frame).
+    private var ocrFrameCounter: Int = 0
 
     func setDepthService(_ service: DepthEstimationService) {
         depthService = service
@@ -27,6 +29,9 @@ actor ObjectTracker {
     ///                 classify traffic-light colours.  Pass `nil` to skip colour
     ///                 classification (depth-enrichment frames, for example).
     func update(detections: [DetectedObject], frame: CameraFrame?) -> [TrackedObject] {
+        ocrFrameCounter += 1
+        let runOCR = (ocrFrameCounter % 10 == 0)
+
         guard !detections.isEmpty else {
             return Array(tracks.values)
         }
@@ -71,11 +76,15 @@ actor ObjectTracker {
             if isPedestrianSignalLabel(det.label), let pb = frame?.pixelBuffer {
                 let fw = CVPixelBufferGetWidth(pb)
                 let fh = CVPixelBufferGetHeight(pb)
-                updated.walkSignalRecommendation = WalkSignalTimerService.detectCountdown(
-                    pixelBuffer: pb,
-                    boundingBox: smoothed,
-                    frameSize: CGSize(width: fw, height: fh)
-                )
+                if runOCR {
+                    updated.walkSignalRecommendation = WalkSignalTimerService.detectCountdown(
+                        pixelBuffer: pb,
+                        boundingBox: smoothed,
+                        frameSize: CGSize(width: fw, height: fh)
+                    )
+                } else {
+                    updated.walkSignalRecommendation = track.walkSignalRecommendation
+                }
             }
             tracks[match.trackId] = updated
         }
@@ -99,11 +108,15 @@ actor ObjectTracker {
             if isPedestrianSignalLabel(det.label), let pb = frame?.pixelBuffer {
                 let fw = CVPixelBufferGetWidth(pb)
                 let fh = CVPixelBufferGetHeight(pb)
-                newTrack.walkSignalRecommendation = WalkSignalTimerService.detectCountdown(
-                    pixelBuffer: pb,
-                    boundingBox: det.boundingBox,
-                    frameSize: CGSize(width: fw, height: fh)
-                )
+                if runOCR {
+                    newTrack.walkSignalRecommendation = WalkSignalTimerService.detectCountdown(
+                        pixelBuffer: pb,
+                        boundingBox: det.boundingBox,
+                        frameSize: CGSize(width: fw, height: fh)
+                    )
+                } else {
+                    newTrack.walkSignalRecommendation = nil
+                }
             }
             tracks[id] = newTrack
         }

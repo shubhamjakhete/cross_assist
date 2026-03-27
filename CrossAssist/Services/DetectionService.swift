@@ -27,6 +27,15 @@ actor DetectionService {
     /// Optional — service continues with the other two models if unavailable.
     private var crosswalkVisionModel: VNCoreMLModel?
 
+    // MARK: - Frame skipping (battery / CPU)
+
+    /// Increments once per `detect()` call — drives per-model schedules.
+    private var frameCount: Int = 0
+    /// Cached yolo11n output when that model is skipped this frame.
+    private var lastYoloResults: [DetectedObject] = []
+    /// Cached crosswalkDetection output when that model is skipped this frame.
+    private var lastCrosswalkResults: [DetectedObject] = []
+
     // Private init — accepts all three loaded vision models.
     init(model: VNCoreMLModel, pedestrianModel: VNCoreMLModel?, crosswalkModel: VNCoreMLModel?) {
         self.visionModel = model
@@ -91,78 +100,79 @@ actor DetectionService {
     }
 
     func detect(frame: CameraFrame) async -> [DetectedObject] {
+        frameCount += 1
+
         guard let model = visionModel else {
             print("❌ visionModel is nil inside detect()")
             return []
         }
 
-        print("🔍 detect() called")
+        let runYolo = (frameCount % 2 == 0)
+        let runCrosswalk = (frameCount % 5 == 0)
 
-        // ── Model 1: yolo11n — COCO object detection ─────────────────────
+        print("🔍 detect() frame \(frameCount) — yolo:\(runYolo) ped:always crosswalk:\(runCrosswalk)")
 
         // Pedestrian-safety classes shown at normal confidence threshold.
         let alwaysShow: Set<String> = [
             "person", "bicycle", "car", "motorcycle",
             "bus", "truck", "traffic light", "stop sign"
         ]
-        // Path-obstacle classes only shown when confidence is high enough to
-        // avoid false positives on cluttered backgrounds.
         let obstacleLabels: Set<String> = ["bench", "chair", "couch", "sofa"]
         let obstacleThreshold: Float = 0.55
 
-        var yoloResults: [DetectedObject] = []
-
-        let yoloRequest = VNCoreMLRequest(model: model) { request, error in
-            if let error = error {
-                print("❌ yolo11n Vision request error: \(error)")
-                return
-            }
-            guard let observations = request.results as? [VNRecognizedObjectObservation] else { return }
-            print("✅ yolo11n: \(observations.count) raw observations")
-
-            var filtered: [DetectedObject] = []
-            for obs in observations {
-                guard obs.confidence >= 0.40 else { continue }
-                let raw = obs.labels.first?.identifier.lowercased() ?? ""
-
-                if alwaysShow.contains(raw) {
-                    let bbox = obs.boundingBox
-
-                    // ── Person-specific false-positive filters ──────────────
-                    // Walk-signal figures are square; real pedestrians are tall.
-                    if raw == "person" {
-                        let aspectRatio = bbox.height / bbox.width
-                        guard aspectRatio > 1.4 else { continue }
-                        guard (bbox.width * bbox.height) >= 0.005 else { continue }
-                    }
-                    // ────────────────────────────────────────────────────────
-
-                    filtered.append(DetectedObject(
-                        id: UUID(),
-                        label: canonicalLabel(raw),
-                        confidence: obs.confidence,
-                        boundingBox: bbox
-                    ))
-                } else if obstacleLabels.contains(raw), obs.confidence >= obstacleThreshold {
-                    filtered.append(DetectedObject(
-                        id: UUID(),
-                        label: "obstacle",
-                        confidence: obs.confidence,
-                        boundingBox: obs.boundingBox
-                    ))
-                }
-                // All other COCO classes are discarded completely.
-            }
-            yoloResults = filtered
-        }
-        yoloRequest.imageCropAndScaleOption = .scaleFill
-
-        // ── Model 2: pedestrianSignal — walk / don't walk classifier ─────
-
+        // Start from caches when models are skipped this frame.
+        var yoloResults = lastYoloResults
         var pedResults: [DetectedObject] = []
+        var crosswalkResults = lastCrosswalkResults
 
-        var requests: [VNRequest] = [yoloRequest]
+        var requests: [VNRequest] = []
 
+        // ── Model 1: yolo11n — every 2nd frame; else reuse lastYoloResults ──
+        if runYolo {
+            let yoloRequest = VNCoreMLRequest(model: model) { request, error in
+                if let error = error {
+                    print("❌ yolo11n Vision request error: \(error)")
+                    return
+                }
+                guard let observations = request.results as? [VNRecognizedObjectObservation] else { return }
+                print("✅ yolo11n: \(observations.count) raw observations")
+
+                var filtered: [DetectedObject] = []
+                for obs in observations {
+                    guard obs.confidence >= 0.40 else { continue }
+                    let raw = obs.labels.first?.identifier.lowercased() ?? ""
+
+                    if alwaysShow.contains(raw) {
+                        let bbox = obs.boundingBox
+
+                        if raw == "person" {
+                            let aspectRatio = bbox.height / bbox.width
+                            guard aspectRatio > 1.4 else { continue }
+                            guard (bbox.width * bbox.height) >= 0.005 else { continue }
+                        }
+
+                        filtered.append(DetectedObject(
+                            id: UUID(),
+                            label: canonicalLabel(raw),
+                            confidence: obs.confidence,
+                            boundingBox: bbox
+                        ))
+                    } else if obstacleLabels.contains(raw), obs.confidence >= obstacleThreshold {
+                        filtered.append(DetectedObject(
+                            id: UUID(),
+                            label: "obstacle",
+                            confidence: obs.confidence,
+                            boundingBox: obs.boundingBox
+                        ))
+                    }
+                }
+                yoloResults = filtered
+            }
+            yoloRequest.imageCropAndScaleOption = .scaleFill
+            requests.append(yoloRequest)
+        }
+
+        // ── Model 2: pedestrianSignal — EVERY frame (no skipping) ───────────
         if let pedModel = pedestrianVisionModel {
             let pedRequest = VNCoreMLRequest(model: pedModel) { request, error in
                 if let error = error {
@@ -189,11 +199,8 @@ actor DetectionService {
             requests.append(pedRequest)
         }
 
-        // ── Model 3: crosswalkDetection — crosswalk + vulnerable road users ──
-
-        var crosswalkResults: [DetectedObject] = []
-
-        if let cwModel = crosswalkVisionModel {
+        // ── Model 3: crosswalkDetection — every 5th frame; else cache ────────
+        if let cwModel = crosswalkVisionModel, runCrosswalk {
             let cwRequest = VNCoreMLRequest(model: cwModel) { request, error in
                 if let error = error {
                     print("❌ crosswalkDetection Vision request error: \(error)")
@@ -206,10 +213,7 @@ actor DetectionService {
                 for obs in observations {
                     guard obs.confidence >= 0.35 else { continue }
                     let raw = obs.labels.first?.identifier.lowercased() ?? ""
-                    // Only emit labels that aren't duplicates of yolo11n classes.
                     guard let label = crosswalkLabel(raw) else { continue }
-                    // CROSSWALK requires a higher threshold to suppress false
-                    // positives on checkered patterns, floor tiles, and fabric.
                     if label == "CROSSWALK" {
                         guard obs.confidence >= 0.55 else { continue }
                     }
@@ -226,22 +230,29 @@ actor DetectionService {
             requests.append(cwRequest)
         }
 
-        // ── Run all three requests on the same handler in one pass ────────
-
         let handler = VNImageRequestHandler(
             cvPixelBuffer: frame.pixelBuffer,
             orientation: .right,
             options: [:]
         )
 
-        do {
-            try handler.perform(requests)
-        } catch {
-            print("❌ VNImageRequestHandler error: \(error)")
+        if !requests.isEmpty {
+            do {
+                try handler.perform(requests)
+            } catch {
+                print("❌ VNImageRequestHandler error: \(error)")
+            }
         }
 
-        let merged = yoloResults + pedResults + crosswalkResults
-        print("✅ detect() returning \(merged.count) objects (\(yoloResults.count) COCO + \(pedResults.count) signal + \(crosswalkResults.count) crosswalk)")
+        if runYolo {
+            lastYoloResults = yoloResults
+        }
+        if runCrosswalk {
+            lastCrosswalkResults = crosswalkResults
+        }
+
+        let merged = lastYoloResults + pedResults + lastCrosswalkResults
+        print("✅ detect() returning \(merged.count) objects (\(lastYoloResults.count) COCO + \(pedResults.count) signal + \(lastCrosswalkResults.count) crosswalk)")
         return merged
     }
 }

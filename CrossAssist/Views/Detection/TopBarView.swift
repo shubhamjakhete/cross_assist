@@ -18,7 +18,12 @@ struct TopBarView: View {
     var body: some View {
         HStack(spacing: 10) {
             // Voice toggle
-            Button { voiceEnabled.toggle() } label: {
+            Button {
+                voiceEnabled.toggle()
+                if !voiceEnabled {
+                    VoiceAnnouncementService.shared.stopAll()
+                }
+            } label: {
                 pill(
                     icon: voiceEnabled ? "speaker.wave.2.fill" : "speaker.slash.fill",
                     text: voiceEnabled ? "Voice ON"  : "Voice OFF"

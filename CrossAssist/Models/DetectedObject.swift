@@ -15,4 +15,6 @@ struct DetectedObject: Identifiable, Sendable {
     let label: String
     let confidence: Float
     let boundingBox: CGRect
+    /// Which detector produced this: `"yolo"`, `"pedestrian"`, or `"crosswalk"`.
+    var source: String = "yolo"
 }

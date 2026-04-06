@@ -15,6 +15,10 @@ private enum TrafficCardState: Equatable {
 struct LeftPanelView: View {
     let trackedObjects: [TrackedObject]
 
+    @StateObject private var countdownManager = WalkSignalCountdownManager.shared
+
+    @State private var waitNextPulse = false
+
     // MARK: - Live computed values (change every detection frame)
 
     private var nearestPerson: TrackedObject? {
@@ -37,6 +41,15 @@ struct LeftPanelView: View {
     /// Live distance text for the nearest detected crosswalk (or "" if none).
     private var nearestCrosswalkDistance: String {
         trackedObjects.first { $0.label == "CROSSWALK" }?.formattedDistance ?? ""
+    }
+
+    private var hasPedestrianSignalInFrame: Bool {
+        trackedObjects.contains { isPedestrianSignalLabel($0.label) }
+    }
+
+    private func isPedestrianSignalLabel(_ label: String) -> Bool {
+        let lower = label.lowercased()
+        return ["walk signal", "green light", "red light", "signal"].contains(lower)
     }
 
     /// Priority order: crosswalk model > pedestrianSignal model > HSV colour.
@@ -147,6 +160,16 @@ struct LeftPanelView: View {
                 dangerPulse = false
             }
         }
+        .onChange(of: countdownManager.recommendation) { _, rec in
+            if rec == .waitForNext {
+                waitNextPulse = false
+                withAnimation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true)) {
+                    waitNextPulse = true
+                }
+            } else {
+                waitNextPulse = false
+            }
+        }
     }
 
     // MARK: - Cards (use displayed/debounced values)
@@ -167,11 +190,72 @@ struct LeftPanelView: View {
         }
     }
 
-    /// Card 2 — driven entirely by the pedestrianSignal model label and HSV
-    /// traffic-light colour.  Timer countdown data is now displayed exclusively
-    /// in CrossingGuidanceView which auto-presents when a timer is detected.
+    /// Card 2 — live countdown from `WalkSignalCountdownManager` when a
+    /// pedestrian signal is in frame; otherwise label / HSV fallback.
     @ViewBuilder private var trafficLightCard: some View {
-        labelBasedTrafficCard
+        let rec = countdownManager.recommendation
+        let liveSeconds = countdownManager.currentSeconds
+
+        if hasPedestrianSignalInFrame, rec != .unknown {
+            if let s = liveSeconds, s > 0 {
+                countdownNumericCard(seconds: s, recommendation: rec)
+            } else if rec == .safeNoCountdown {
+                safeNoCountdownCard
+            } else if rec == .waitForNext {
+                waitForNextCard
+            } else {
+                labelBasedTrafficCard
+            }
+        } else {
+            labelBasedTrafficCard
+        }
+    }
+
+    private func countdownNumericCard(seconds: Int, recommendation: WalkSignalRecommendation) -> some View {
+        let bg: Color = {
+            switch recommendation {
+            case .safeToCross: return Color(hex: "22C55E")
+            case .hurry: return Color(hex: "F97316")
+            case .tooLate: return Color(hex: "EF4444")
+            case .waitForNext, .safeNoCountdown, .unknown: return Color.black.opacity(0.65)
+            }
+        }()
+
+        return cardBase(background: bg) {
+            Text("\(seconds)")
+                .font(.system(size: 32, weight: .heavy))
+                .foregroundStyle(.white)
+                .contentTransition(.numericText(countsDown: true))
+                .animation(.easeInOut(duration: 0.4), value: seconds)
+            Text("sec left")
+                .font(.system(size: 10))
+                .foregroundStyle(Color.white.opacity(0.7))
+        }
+    }
+
+    private var safeNoCountdownCard: some View {
+        cardBase(background: Color(hex: "22C55E")) {
+            Image(systemName: "figure.walk")
+                .font(.system(size: 22))
+                .foregroundStyle(.white)
+            Text("WALK")
+                .font(.system(size: 12, weight: .bold))
+                .foregroundStyle(.white)
+                .lineLimit(1)
+        }
+    }
+
+    private var waitForNextCard: some View {
+        let bg = Color(hex: "EF4444").opacity(waitNextPulse ? 1.0 : 0.55)
+        return cardBase(background: bg) {
+            Image(systemName: "hand.raised.fill")
+                .font(.system(size: 22))
+                .foregroundStyle(.white)
+            Text("WAIT")
+                .font(.system(size: 12, weight: .bold))
+                .foregroundStyle(.white)
+                .lineLimit(1)
+        }
     }
 
     /// Card — driven by label/HSV colour state (pedestrianSignal model labels

@@ -28,11 +28,12 @@ actor ObjectTracker {
     ///   - frame:      The source `CameraFrame` (`@unchecked Sendable`) used to
     ///                 classify traffic-light colours.  Pass `nil` to skip colour
     ///                 classification (depth-enrichment frames, for example).
-    func update(detections: [DetectedObject], frame: CameraFrame?) -> [TrackedObject] {
+    func update(detections: [DetectedObject], frame: CameraFrame?) async -> [TrackedObject] {
         ocrFrameCounter += 1
         let runOCR = (ocrFrameCounter % 10 == 0)
 
         guard !detections.isEmpty else {
+            await MainActor.run { WalkSignalCountdownManager.shared.signalNotDetected() }
             return Array(tracks.values)
         }
 
@@ -67,25 +68,13 @@ actor ObjectTracker {
                     label: det.label,
                     boundingBox: smoothed
                 ),
-                frameCount: track.frameCount + 1
+                frameCount: track.frameCount + 1,
+                source: det.source
             )
             updated.trafficLightState = classifyIfTrafficLight(
                 label: det.label, box: smoothed, frame: frame,
                 previous: track.trafficLightState
             )
-            if isPedestrianSignalLabel(det.label), let pb = frame?.pixelBuffer {
-                let fw = CVPixelBufferGetWidth(pb)
-                let fh = CVPixelBufferGetHeight(pb)
-                if runOCR {
-                    updated.walkSignalRecommendation = WalkSignalTimerService.detectCountdown(
-                        pixelBuffer: pb,
-                        boundingBox: smoothed,
-                        frameSize: CGSize(width: fw, height: fh)
-                    )
-                } else {
-                    updated.walkSignalRecommendation = track.walkSignalRecommendation
-                }
-            }
             tracks[match.trackId] = updated
         }
 
@@ -100,25 +89,22 @@ actor ObjectTracker {
                 distanceMeters: DistanceEstimator.estimateDistance(
                     label: det.label,
                     boundingBox: det.boundingBox
-                )
+                ),
+                source: det.source
             )
             newTrack.trafficLightState = classifyIfTrafficLight(
                 label: det.label, box: det.boundingBox, frame: frame, previous: nil
             )
-            if isPedestrianSignalLabel(det.label), let pb = frame?.pixelBuffer {
-                let fw = CVPixelBufferGetWidth(pb)
-                let fh = CVPixelBufferGetHeight(pb)
-                if runOCR {
-                    newTrack.walkSignalRecommendation = WalkSignalTimerService.detectCountdown(
-                        pixelBuffer: pb,
-                        boundingBox: det.boundingBox,
-                        frameSize: CGSize(width: fw, height: fh)
-                    )
-                } else {
-                    newTrack.walkSignalRecommendation = nil
-                }
-            }
             tracks[id] = newTrack
+        }
+
+        await syncWalkSignalManager(detections: detections, frame: frame, runOCR: runOCR)
+
+        let managerRec = await MainActor.run { WalkSignalCountdownManager.shared.recommendation }
+        for id in tracks.keys {
+            guard var t = tracks[id], isPedestrianSignalLabel(t.label) else { continue }
+            t.walkSignalRecommendation = managerRec
+            tracks[id] = t
         }
 
         for trackId in existingTrackIds where !matchedTracks.contains(trackId) {
@@ -144,28 +130,99 @@ actor ObjectTracker {
         let crosswalks = visible.filter { $0.label == "CROSSWALK" }
         let others     = visible.filter { $0.label != "CROSSWALK" }
 
-        guard crosswalks.count > 1 else {
-            return others + crosswalks   // 0 or 1 crosswalk — nothing to merge
+        let mergedVisible: [TrackedObject]
+        if crosswalks.count > 1 {
+            let minX = crosswalks.map { $0.boundingBox.minX }.min()!
+            let minY = crosswalks.map { $0.boundingBox.minY }.min()!
+            let maxX = crosswalks.map { $0.boundingBox.maxX }.max()!
+            let maxY = crosswalks.map { $0.boundingBox.maxY }.max()!
+            let mergedBox = CGRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY)
+
+            let best = crosswalks.max(by: { $0.confidence < $1.confidence })!
+            var merged = TrackedObject(
+                id: best.id,
+                label: "CROSSWALK",
+                confidence: best.confidence,
+                boundingBox: mergedBox,
+                distanceMeters: best.distanceMeters,
+                frameCount: best.frameCount,
+                source: best.source
+            )
+            merged.walkSignalRecommendation = best.walkSignalRecommendation
+            mergedVisible = others + [merged]
+        } else {
+            mergedVisible = others + crosswalks
         }
 
-        let minX = crosswalks.map { $0.boundingBox.minX }.min()!
-        let minY = crosswalks.map { $0.boundingBox.minY }.min()!
-        let maxX = crosswalks.map { $0.boundingBox.maxX }.max()!
-        let maxY = crosswalks.map { $0.boundingBox.maxY }.max()!
-        let mergedBox = CGRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY)
+        let relabeledVisible = relabelPedestrianRedWithoutCrosswalkRedOverlap(mergedVisible)
 
-        let best = crosswalks.max(by: { $0.confidence < $1.confidence })!
-        var merged = TrackedObject(
-            id: best.id,
-            label: "CROSSWALK",
-            confidence: best.confidence,
-            boundingBox: mergedBox,
-            distanceMeters: best.distanceMeters,
-            frameCount: best.frameCount
+        // MARK: - Pedestrian signal deduplication
+        // Same physical signal may produce multiple overlapping boxes; merge per label.
+        let signalLabels = ["RED LIGHT", "GREEN LIGHT", "WALK SIGNAL", "SIGNAL"]
+        var signalDeduped: [TrackedObject] = []
+        let nonSignalObjects = relabeledVisible.filter { !signalLabels.contains($0.label) }
+
+        for sigLabel in signalLabels {
+            let group = relabeledVisible.filter { $0.label == sigLabel }
+            guard !group.isEmpty else { continue }
+            if group.count == 1 {
+                signalDeduped.append(group[0])
+                continue
+            }
+            let minXs = group.map { $0.boundingBox.minX }.min()!
+            let minYs = group.map { $0.boundingBox.minY }.min()!
+            let maxXs = group.map { $0.boundingBox.maxX }.max()!
+            let maxYs = group.map { $0.boundingBox.maxY }.max()!
+            let mergedSigBox = CGRect(x: minXs, y: minYs, width: maxXs - minXs, height: maxYs - minYs)
+
+            let bestSig = group.max(by: { $0.confidence < $1.confidence })!
+            var mergedSig = TrackedObject(
+                id: bestSig.id,
+                label: sigLabel,
+                confidence: bestSig.confidence,
+                boundingBox: mergedSigBox,
+                distanceMeters: bestSig.distanceMeters,
+                frameCount: bestSig.frameCount,
+                source: bestSig.source
+            )
+            mergedSig.trafficLightState = bestSig.trafficLightState
+            mergedSig.walkSignalRecommendation = group
+                .compactMap { $0.walkSignalRecommendation }
+                .max(by: { $0.urgency < $1.urgency })
+            signalDeduped.append(mergedSig)
+        }
+
+        return nonSignalObjects + signalDeduped
+    }
+
+    /// Pedestrian-only `RED LIGHT` with no overlapping crosswalk-model vehicle red
+    /// is ambiguous (blinking hand); downgrade to `SIGNAL` for neutral UI.
+    private func relabelPedestrianRedWithoutCrosswalkRedOverlap(_ objects: [TrackedObject]) -> [TrackedObject] {
+        let crosswalkRedBoxes = objects
+            .filter { $0.label == "RED LIGHT" && $0.source == "crosswalk" }
+            .map(\.boundingBox)
+
+        return objects.map { obj in
+            guard obj.label == "RED LIGHT", obj.source == "pedestrian" else { return obj }
+            let overlapsVehicleRed = crosswalkRedBoxes.contains { iou($0, obj.boundingBox) > 0.25 }
+            if overlapsVehicleRed { return obj }
+            return pedestrianRedRelabeledAsSignal(obj)
+        }
+    }
+
+    private func pedestrianRedRelabeledAsSignal(_ obj: TrackedObject) -> TrackedObject {
+        var relabeled = TrackedObject(
+            id: obj.id,
+            label: "SIGNAL",
+            confidence: obj.confidence,
+            boundingBox: obj.boundingBox,
+            distanceMeters: obj.distanceMeters,
+            frameCount: obj.frameCount,
+            source: obj.source
         )
-        merged.walkSignalRecommendation = best.walkSignalRecommendation
-
-        return others + [merged]
+        relabeled.trafficLightState = obj.trafficLightState
+        relabeled.walkSignalRecommendation = obj.walkSignalRecommendation
+        return relabeled
     }
 
     // MARK: - Traffic light classification
@@ -196,6 +253,45 @@ actor ObjectTracker {
     }
 
     // MARK: - Pedestrian signal detection
+
+    private func syncWalkSignalManager(
+        detections: [DetectedObject],
+        frame: CameraFrame?,
+        runOCR: Bool
+    ) async {
+        let pedDets = detections.filter { isPedestrianSignalLabel($0.label) }
+        guard !pedDets.isEmpty else {
+            await MainActor.run { WalkSignalCountdownManager.shared.signalNotDetected() }
+            return
+        }
+        guard let best = pedDets.max(by: { $0.confidence < $1.confidence }) else { return }
+
+        if runOCR, let pb = frame?.pixelBuffer {
+            let fw = CVPixelBufferGetWidth(pb)
+            let fh = CVPixelBufferGetHeight(pb)
+            let rawRec = WalkSignalTimerService.detectCountdown(
+                pixelBuffer: pb,
+                boundingBox: best.boundingBox,
+                frameSize: CGSize(width: fw, height: fh)
+            )
+            await MainActor.run {
+                switch rawRec {
+                case .safeToCross(let s), .hurry(let s), .tooLate(let s):
+                    WalkSignalCountdownManager.shared.updateFromOCR(s)
+                case .safeNoCountdown:
+                    WalkSignalCountdownManager.shared.signalDetectedNoCountdown()
+                case .waitForNext:
+                    WalkSignalCountdownManager.shared.updateFromOCR(0)
+                case .unknown:
+                    WalkSignalCountdownManager.shared.signalDetectedNoCountdown()
+                }
+            }
+        } else {
+            await MainActor.run {
+                WalkSignalCountdownManager.shared.signalDetectedNoCountdown()
+            }
+        }
+    }
 
     private func isPedestrianSignalLabel(_ label: String) -> Bool {
         let lower = label.lowercased()

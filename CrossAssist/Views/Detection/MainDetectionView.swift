@@ -12,6 +12,13 @@ import SwiftUI
 struct MainDetectionView: View {
     @Environment(\.dismiss) private var dismiss
     @StateObject private var cameraManager = CameraManager()
+    @StateObject private var countdownManager = WalkSignalCountdownManager.shared
+
+    private let voice = VoiceAnnouncementService.shared
+
+    @State private var lastAnnouncedCrosswalk: Bool = false
+    @State private var lastSignalAnnouncementTime: Date = .distantPast
+
     @State private var trackedObjects: [TrackedObject] = []
     @State private var cameraPermissionGranted = false
     @State private var isInitializing = true
@@ -143,6 +150,13 @@ struct MainDetectionView: View {
         .fullScreenCover(isPresented: $showHistory) {
             PlaceholderView(title: "History")
         }
+        .onChange(of: countdownManager.recommendation) { _, _ in
+            announceIfNeeded(trackedObjects)
+        }
+        .onDisappear {
+            voice.stopAll()
+            cameraManager.stop()
+        }
         .task {
             // Load YOLO synchronously — fast, already @MainActor
             do {
@@ -180,9 +194,7 @@ struct MainDetectionView: View {
                 await MainActor.run {
                     trackedObjects = tracked
                     print("🟢 Tracked objects count: \(trackedObjects.count)")
-                    // crosswalkDetected is a computed property — the hint banner
-                    // appears / disappears automatically with the frame.
-                    // CrossingGuidanceView opens only via explicit user tap.
+                    announceIfNeeded(trackedObjects)
                 }
 
                 // ── Step 2: Depth Anything V2 enrichment (every 15th frame, only when
@@ -209,8 +221,144 @@ struct MainDetectionView: View {
                     await MainActor.run { [self] in
                         self.trackedObjects = final
                         print("📐 Depth enrichment done — \(final.count) objects")
+                        self.announceIfNeeded(self.trackedObjects)
                     }
                 }
+            }
+        }
+    }
+
+    // MARK: - Voice announcements
+
+    /// Spoken distance: full words so TTS does not read "cm" as an abbreviation.
+    private func speechDistance(_ meters: Float?) -> String {
+        guard let m = meters else { return "" }
+        if m < 1.0 {
+            let cm = Int(m * 100)
+            return "\(cm) centimeters"
+        } else {
+            return String(format: "%.1f meters", m)
+        }
+    }
+
+    private func announceIfNeeded(_ objects: [TrackedObject]) {
+
+        if let critical = objects.first(where: { $0.isCritical }) {
+            let label = critical.label.lowercased()
+            let dist = speechDistance(critical.distanceMeters)
+            let distPart = dist.isEmpty ? "unknown distance" : dist
+            let text = "Stop. \(label). \(distPart) ahead."
+            voice.announce(text, urgency: .high, category: .criticalObstacle)
+            return
+        }
+
+        let timerRec = countdownManager.recommendation
+
+        if timerRec != .unknown {
+            let rec = timerRec
+            switch rec {
+            case .tooLate:
+                if voice.announce(
+                    "Too late. Wait for next signal.",
+                    urgency: .high,
+                    category: .timerTooLate
+                ) {
+                    lastSignalAnnouncementTime = Date()
+                }
+                return
+            case .waitForNext:
+                if voice.announce(
+                    "Please wait. Next signal.",
+                    urgency: .high,
+                    category: .timerWaitForNext
+                ) {
+                    lastSignalAnnouncementTime = Date()
+                }
+                return
+            case .hurry(let s):
+                if voice.announce(
+                    "Hurry. \(s) seconds left.",
+                    urgency: .medium,
+                    category: .timerHurry
+                ) {
+                    lastSignalAnnouncementTime = Date()
+                }
+                return
+            case .safeToCross(let s):
+                if voice.announce(
+                    "Cross now. \(s) seconds.",
+                    urgency: .low,
+                    category: .timerSafeToCross
+                ) {
+                    lastSignalAnnouncementTime = Date()
+                }
+                return
+            case .safeNoCountdown:
+                if voice.announce(
+                    "Walk signal. Safe to cross.",
+                    urgency: .low,
+                    category: .safeNoCountdown
+                ) {
+                    lastSignalAnnouncementTime = Date()
+                }
+                return
+            default:
+                break
+            }
+        }
+
+        if let danger = objects.first(where: { $0.isDangerous }) {
+            let label = danger.label.lowercased()
+            let dist = speechDistance(danger.distanceMeters)
+            let distPart = dist.isEmpty ? "unknown distance" : dist
+            let text = "Caution. \(label). \(distPart)."
+            voice.announce(text, urgency: .medium, category: .dangerousObject)
+            return
+        }
+
+        let hasCrosswalk = objects.contains { $0.label == "CROSSWALK" }
+        let signalAnnouncedRecently =
+            Date().timeIntervalSince(lastSignalAnnouncementTime) < 20.0
+
+        if hasCrosswalk && !lastAnnouncedCrosswalk && !signalAnnouncedRecently {
+            if voice.announce("Crosswalk ahead.", urgency: .low, category: .crosswalkDetected) {
+                lastAnnouncedCrosswalk = true
+            }
+        } else if !hasCrosswalk {
+            lastAnnouncedCrosswalk = false
+        }
+
+        let walkSignal = objects.first {
+            ["walk signal", "green light", "red light"].contains($0.label.lowercased())
+        }
+        if let signal = walkSignal {
+            switch signal.label.lowercased() {
+            case "walk signal":
+                if voice.announce(
+                    "Walk signal. Safe to cross.",
+                    urgency: .low,
+                    category: .walkSignal
+                ) {
+                    lastSignalAnnouncementTime = Date()
+                }
+            case "green light":
+                if voice.announce(
+                    "Green light. Safe to cross.",
+                    urgency: .low,
+                    category: .greenLight
+                ) {
+                    lastSignalAnnouncementTime = Date()
+                }
+            case "red light":
+                if voice.announce(
+                    "Red light. Do not cross.",
+                    urgency: .medium,
+                    category: .redLight
+                ) {
+                    lastSignalAnnouncementTime = Date()
+                }
+            default:
+                break
             }
         }
     }

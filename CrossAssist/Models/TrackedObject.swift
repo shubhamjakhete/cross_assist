@@ -23,6 +23,8 @@ struct TrackedObject: Identifiable, Sendable {
     /// Walk-signal countdown recommendation from OCR. Only set for objects
     /// whose label comes from the pedestrianSignal model; nil for all others.
     var walkSignalRecommendation: WalkSignalRecommendation? = nil
+    /// Detector lineage: `"yolo"`, `"pedestrian"`, or `"crosswalk"`.
+    var source: String = "yolo"
 
     var formattedDistance: String {
         DistanceEstimator.formatDistance(distanceMeters)

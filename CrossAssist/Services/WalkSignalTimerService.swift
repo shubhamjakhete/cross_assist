@@ -39,7 +39,7 @@ enum WalkSignalRecommendation: Equatable, Sendable {
     }
 
     /// Higher urgency = shown first in the status bar priority order.
-    var urgency: Int {
+    nonisolated var urgency: Int {
         switch self {
         case .unknown:         return -1
         case .safeToCross:     return  0

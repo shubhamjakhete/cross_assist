@@ -155,14 +155,16 @@ actor DetectionService {
                             id: UUID(),
                             label: canonicalLabel(raw),
                             confidence: obs.confidence,
-                            boundingBox: bbox
+                            boundingBox: bbox,
+                            source: "yolo"
                         ))
                     } else if obstacleLabels.contains(raw), obs.confidence >= obstacleThreshold {
                         filtered.append(DetectedObject(
                             id: UUID(),
                             label: "obstacle",
                             confidence: obs.confidence,
-                            boundingBox: obs.boundingBox
+                            boundingBox: obs.boundingBox,
+                            source: "yolo"
                         ))
                     }
                 }
@@ -190,7 +192,8 @@ actor DetectionService {
                         id: UUID(),
                         label: pedestrianLabel(raw),
                         confidence: obs.confidence,
-                        boundingBox: obs.boundingBox
+                        boundingBox: obs.boundingBox,
+                        source: "pedestrian"
                     ))
                 }
                 pedResults = filtered
@@ -221,7 +224,8 @@ actor DetectionService {
                         id: UUID(),
                         label: label,
                         confidence: obs.confidence,
-                        boundingBox: obs.boundingBox
+                        boundingBox: obs.boundingBox,
+                        source: "crosswalk"
                     ))
                 }
                 crosswalkResults = filtered

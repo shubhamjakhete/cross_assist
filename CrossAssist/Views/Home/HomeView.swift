@@ -5,9 +5,21 @@
 //  Created by Shubham Jakhete on 3/7/26.
 //
 
+import CoreLocation
+import MapKit
 import SwiftUI
 
 struct HomeView: View {
+    @StateObject private var locationManager = LocationManager.shared
+
+    /// Forces `Map` to rebuild when coordinates change (`.constant` position does not animate updates).
+    private var locationMapIdentity: String {
+        if let c = locationManager.currentLocation?.coordinate {
+            return "\(c.latitude)-\(c.longitude)"
+        }
+        return "fallback-sf"
+    }
+
     @State private var showDetection = false
     @State private var showSettings  = false
     @State private var showHistory   = false
@@ -51,6 +63,12 @@ struct HomeView: View {
         }
         .fullScreenCover(isPresented: $showCrossing) {
             CrossingGuidanceView()
+        }
+        .onAppear {
+            locationManager.requestPermission()
+        }
+        .onDisappear {
+            locationManager.stopUpdating()
         }
     }
 
@@ -124,34 +142,18 @@ struct HomeView: View {
 
     private var liveMapCard: some View {
         ZStack(alignment: .topLeading) {
-            // Base card
-            RoundedRectangle(cornerRadius: 20)
-                .fill(Color(hex: "111827"))
-
-            // Faint grid texture
-            GeometryReader { geo in
-                let cols = 5
-                let rows = 5
-                let w = geo.size.width
-                let h = geo.size.height
-
-                Path { path in
-                    // Vertical lines
-                    for i in 1..<cols {
-                        let x = w * CGFloat(i) / CGFloat(cols)
-                        path.move(to: CGPoint(x: x, y: 0))
-                        path.addLine(to: CGPoint(x: x, y: h))
-                    }
-                    // Horizontal lines
-                    for i in 1..<rows {
-                        let y = h * CGFloat(i) / CGFloat(rows)
-                        path.move(to: CGPoint(x: 0, y: y))
-                        path.addLine(to: CGPoint(x: w, y: y))
-                    }
-                }
-                .stroke(Color.white.opacity(0.04), lineWidth: 0.5)
-            }
+            Map(position: .constant(.region(MKCoordinateRegion(
+                center: locationManager.currentLocation?.coordinate
+                    ?? CLLocationCoordinate2D(latitude: 37.7749, longitude: -122.4194),
+                span: MKCoordinateSpan(latitudeDelta: 0.01, longitudeDelta: 0.01)
+            ))))
+            .id(locationMapIdentity)
+            .frame(height: 160)
             .clipShape(RoundedRectangle(cornerRadius: 20))
+            .disabled(true)
+
+            RoundedRectangle(cornerRadius: 20)
+                .fill(Color.black.opacity(0.35))
 
             // Content
             VStack(alignment: .leading, spacing: 0) {
@@ -180,7 +182,7 @@ struct HomeView: View {
                         Image(systemName: "location.fill")
                             .font(.system(size: 11))
                             .foregroundStyle(Color(hex: "9CA3AF"))
-                        Text("San Francisco, CA")
+                        Text(locationManager.cityName)
                             .font(.system(size: 12))
                             .foregroundStyle(Color(hex: "9CA3AF"))
                     }
@@ -192,7 +194,9 @@ struct HomeView: View {
                 HStack(spacing: 6) {
                     ZStack {
                         Circle()
-                            .fill(Color(hex: "22C55E"))
+                            .fill(locationManager.isLocationAvailable
+                                ? Color(hex: "22C55E")
+                                : Color(hex: "EF4444"))
                             .frame(width: 8, height: 8)
                             .scaleEffect(sensorPulse ? 1.3 : 1.0)
                             .animation(
@@ -200,7 +204,7 @@ struct HomeView: View {
                                 value: sensorPulse
                             )
                     }
-                    Text("Sensors Active")
+                    Text(locationManager.isLocationAvailable ? "Sensors Active" : "Location Off")
                         .font(.system(size: 13, weight: .medium))
                         .foregroundStyle(Color(hex: "E5E7EB"))
                 }

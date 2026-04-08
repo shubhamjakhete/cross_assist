@@ -9,6 +9,13 @@ import SwiftUI
 
 @main
 struct CrossAssistApp: App {
+
+    init() {
+        if CommandLine.arguments.contains("--resetOnboarding") {
+            UserDefaults.standard.set(false, forKey: "onboardingComplete")
+        }
+    }
+
     var body: some Scene {
         WindowGroup {
             ContentView()

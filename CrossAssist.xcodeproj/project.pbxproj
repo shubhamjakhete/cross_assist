@@ -6,11 +6,40 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXContainerItemProxy section */
+		7FC50D9C2F85C10500A4EA01 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 7FCF64382F5D267000430694 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 7FCF643F2F5D267000430694;
+			remoteInfo = CrossAssist;
+		};
+		7FC50DAB2F85C12B00A4EA01 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 7FCF64382F5D267000430694 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 7FCF643F2F5D267000430694;
+			remoteInfo = CrossAssist;
+		};
+/* End PBXContainerItemProxy section */
+
 /* Begin PBXFileReference section */
+		7FC50D982F85C10500A4EA01 /* CrossAssistUnitTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = CrossAssistUnitTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		7FC50DA52F85C12B00A4EA01 /* CrossAssistUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = CrossAssistUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		7FCF64402F5D267000430694 /* CrossAssist.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = CrossAssist.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
+		7FC50D992F85C10500A4EA01 /* CrossAssistUnitTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = CrossAssistUnitTests;
+			sourceTree = "<group>";
+		};
+		7FC50DA62F85C12B00A4EA01 /* CrossAssistUITests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = CrossAssistUITests;
+			sourceTree = "<group>";
+		};
 		7FCF64422F5D267000430694 /* CrossAssist */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = CrossAssist;
@@ -19,6 +48,20 @@
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
+		7FC50D952F85C10500A4EA01 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		7FC50DA22F85C12B00A4EA01 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		7FCF643D2F5D267000430694 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
@@ -33,6 +76,8 @@
 			isa = PBXGroup;
 			children = (
 				7FCF64422F5D267000430694 /* CrossAssist */,
+				7FC50D992F85C10500A4EA01 /* CrossAssistUnitTests */,
+				7FC50DA62F85C12B00A4EA01 /* CrossAssistUITests */,
 				7FCF64412F5D267000430694 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -41,6 +86,8 @@
 			isa = PBXGroup;
 			children = (
 				7FCF64402F5D267000430694 /* CrossAssist.app */,
+				7FC50D982F85C10500A4EA01 /* CrossAssistUnitTests.xctest */,
+				7FC50DA52F85C12B00A4EA01 /* CrossAssistUITests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -48,6 +95,52 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
+		7FC50D972F85C10500A4EA01 /* CrossAssistUnitTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 7FC50DA02F85C10500A4EA01 /* Build configuration list for PBXNativeTarget "CrossAssistUnitTests" */;
+			buildPhases = (
+				7FC50D942F85C10500A4EA01 /* Sources */,
+				7FC50D952F85C10500A4EA01 /* Frameworks */,
+				7FC50D962F85C10500A4EA01 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				7FC50D9D2F85C10500A4EA01 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				7FC50D992F85C10500A4EA01 /* CrossAssistUnitTests */,
+			);
+			name = CrossAssistUnitTests;
+			packageProductDependencies = (
+			);
+			productName = CrossAssistUnitTests;
+			productReference = 7FC50D982F85C10500A4EA01 /* CrossAssistUnitTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+		7FC50DA42F85C12B00A4EA01 /* CrossAssistUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 7FC50DAD2F85C12B00A4EA01 /* Build configuration list for PBXNativeTarget "CrossAssistUITests" */;
+			buildPhases = (
+				7FC50DA12F85C12B00A4EA01 /* Sources */,
+				7FC50DA22F85C12B00A4EA01 /* Frameworks */,
+				7FC50DA32F85C12B00A4EA01 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				7FC50DAC2F85C12B00A4EA01 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				7FC50DA62F85C12B00A4EA01 /* CrossAssistUITests */,
+			);
+			name = CrossAssistUITests;
+			packageProductDependencies = (
+			);
+			productName = CrossAssistUITests;
+			productReference = 7FC50DA52F85C12B00A4EA01 /* CrossAssistUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
 		7FCF643F2F5D267000430694 /* CrossAssist */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = 7FCF644B2F5D267100430694 /* Build configuration list for PBXNativeTarget "CrossAssist" */;
@@ -80,6 +173,14 @@
 				LastSwiftUpdateCheck = 2620;
 				LastUpgradeCheck = 2620;
 				TargetAttributes = {
+					7FC50D972F85C10500A4EA01 = {
+						CreatedOnToolsVersion = 26.2;
+						TestTargetID = 7FCF643F2F5D267000430694;
+					};
+					7FC50DA42F85C12B00A4EA01 = {
+						CreatedOnToolsVersion = 26.2;
+						TestTargetID = 7FCF643F2F5D267000430694;
+					};
 					7FCF643F2F5D267000430694 = {
 						CreatedOnToolsVersion = 26.2;
 					};
@@ -100,11 +201,27 @@
 			projectRoot = "";
 			targets = (
 				7FCF643F2F5D267000430694 /* CrossAssist */,
+				7FC50D972F85C10500A4EA01 /* CrossAssistUnitTests */,
+				7FC50DA42F85C12B00A4EA01 /* CrossAssistUITests */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
+		7FC50D962F85C10500A4EA01 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		7FC50DA32F85C12B00A4EA01 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		7FCF643E2F5D267000430694 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -115,6 +232,20 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
+		7FC50D942F85C10500A4EA01 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		7FC50DA12F85C12B00A4EA01 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		7FCF643C2F5D267000430694 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -124,7 +255,102 @@
 		};
 /* End PBXSourcesBuildPhase section */
 
+/* Begin PBXTargetDependency section */
+		7FC50D9D2F85C10500A4EA01 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 7FCF643F2F5D267000430694 /* CrossAssist */;
+			targetProxy = 7FC50D9C2F85C10500A4EA01 /* PBXContainerItemProxy */;
+		};
+		7FC50DAC2F85C12B00A4EA01 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 7FCF643F2F5D267000430694 /* CrossAssist */;
+			targetProxy = 7FC50DAB2F85C12B00A4EA01 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
 /* Begin XCBuildConfiguration section */
+		7FC50D9E2F85C10500A4EA01 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 6TD4PJZ632;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.shubhamjakhete.crossassist.CrossAssistUnitTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/CrossAssist.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/CrossAssist";
+			};
+			name = Debug;
+		};
+		7FC50D9F2F85C10500A4EA01 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 6TD4PJZ632;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.shubhamjakhete.crossassist.CrossAssistUnitTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/CrossAssist.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/CrossAssist";
+			};
+			name = Release;
+		};
+		7FC50DAE2F85C12B00A4EA01 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 6TD4PJZ632;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.shubhamjakhete.crossassist.CrossAssistUITests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = CrossAssist;
+			};
+			name = Debug;
+		};
+		7FC50DAF2F85C12B00A4EA01 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 6TD4PJZ632;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.shubhamjakhete.crossassist.CrossAssistUITests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = CrossAssist;
+			};
+			name = Release;
+		};
 		7FCF64492F5D267100430694 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -315,6 +541,24 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+		7FC50DA02F85C10500A4EA01 /* Build configuration list for PBXNativeTarget "CrossAssistUnitTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				7FC50D9E2F85C10500A4EA01 /* Debug */,
+				7FC50D9F2F85C10500A4EA01 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		7FC50DAD2F85C12B00A4EA01 /* Build configuration list for PBXNativeTarget "CrossAssistUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				7FC50DAE2F85C12B00A4EA01 /* Debug */,
+				7FC50DAF2F85C12B00A4EA01 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 		7FCF643B2F5D267000430694 /* Build configuration list for PBXProject "CrossAssist" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (

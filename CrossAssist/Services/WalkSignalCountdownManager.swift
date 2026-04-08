@@ -106,3 +106,12 @@ final class WalkSignalCountdownManager: ObservableObject {
         signalLastSeenTime = .distantPast
     }
 }
+
+// MARK: - Unit test support (CrossAssistUnitTests)
+
+extension WalkSignalCountdownManager {
+    @MainActor
+    func resetForUnitTesting() {
+        reset()
+    }
+}

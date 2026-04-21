@@ -6,133 +6,210 @@
 import Combine
 import CoreLocation
 import MapKit
+import SwiftUI
 
-@MainActor
-final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
+// MARK: - One-shot location (no persistent CLLocationManager on LocationManager)
 
-    static let shared = LocationManager()
+/// Short-lived `CLLocationManager` for a single `requestLocation()` / authorization flow (iOS 26 When Shared).
+private final class OneShotLocationFetcher: NSObject, CLLocationManagerDelegate {
+    private let manager = CLLocationManager()
+    private var didFinish = false
+    private let onResult: (Result<CLLocationCoordinate2D, Error>) -> Void
 
-    @Published var currentLocation: CLLocation?
-    @Published var cityName: String = "Locating..."
-    @Published var authorizationStatus: CLAuthorizationStatus = .notDetermined
-    @Published var isLocationAvailable: Bool = false
-
-    private let locationManager = CLLocationManager()
-    private var lastGeocodedLocation: CLLocation?
-
-    private override init() {
+    init(onResult: @escaping (Result<CLLocationCoordinate2D, Error>) -> Void) {
+        self.onResult = onResult
         super.init()
-        locationManager.delegate = self
-        locationManager.desiredAccuracy = kCLLocationAccuracyHundredMeters
-        locationManager.distanceFilter = 50
-        authorizationStatus = locationManager.authorizationStatus
+        manager.delegate = self
+        manager.desiredAccuracy = kCLLocationAccuracyHundredMeters
     }
 
-    func requestPermission() {
-        switch locationManager.authorizationStatus {
+    func start() {
+        switch manager.authorizationStatus {
         case .notDetermined:
-            locationManager.requestWhenInUseAuthorization()
+            manager.requestWhenInUseAuthorization()
         case .authorizedWhenInUse, .authorizedAlways:
-            locationManager.startUpdatingLocation()
-            isLocationAvailable = true
+            manager.requestLocation()
         case .denied, .restricted:
-            isLocationAvailable = false
-            cityName = "Location off"
+            finish(.failure(NSError(domain: "Location", code: 1, userInfo: [NSLocalizedDescriptionKey: "Denied or restricted"])))
         @unknown default:
+            manager.requestWhenInUseAuthorization()
+        }
+    }
+
+    private func finish(_ result: Result<CLLocationCoordinate2D, Error>) {
+        guard !didFinish else { return }
+        didFinish = true
+        Task { @MainActor in
+            self.onResult(result)
+        }
+    }
+
+    func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
+        switch manager.authorizationStatus {
+        case .authorizedWhenInUse, .authorizedAlways:
+            manager.requestLocation()
+        case .denied, .restricted:
+            finish(.failure(NSError(domain: "Location", code: 1, userInfo: [NSLocalizedDescriptionKey: "Denied or restricted"])))
+        default:
             break
         }
     }
 
-    func stopUpdating() {
-        locationManager.stopUpdatingLocation()
+    func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
+        guard let coord = locations.last?.coordinate else { return }
+        finish(.success(coord))
     }
 
-    // MARK: - CLLocationManagerDelegate
+    func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
+        finish(.failure(error))
+    }
+}
 
-    nonisolated func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
-        Task { @MainActor in
-            self.authorizationStatus = manager.authorizationStatus
-            switch manager.authorizationStatus {
-            case .authorizedWhenInUse, .authorizedAlways:
-                self.isLocationAvailable = true
-                manager.startUpdatingLocation()
-            case .denied, .restricted:
-                self.isLocationAvailable = false
-                self.cityName = "Location off"
-            default:
-                break
-            }
-        }
+// MARK: - LocationManager (MKCoordinateRegion + Map(position:) — no stored CLLocationManager)
+
+@MainActor
+final class LocationManager: ObservableObject {
+
+    static let shared = LocationManager()
+
+    /// Map region; drives `Map(position: .constant(.region(...)))` on Home.
+    @Published var region: MKCoordinateRegion = MKCoordinateRegion(
+        center: CLLocationCoordinate2D(latitude: 33.8703, longitude: -117.9242),
+        span: MKCoordinateSpan(latitudeDelta: 0.01, longitudeDelta: 0.01)
+    )
+
+    @Published var cityName: String = "Locating..."
+    @Published var isLocationActive: Bool = false
+    @Published var userCoordinate: CLLocationCoordinate2D?
+
+    private static let fallbackCenter = CLLocationCoordinate2D(latitude: 33.8703, longitude: -117.9242)
+    private static let fallbackSpan = MKCoordinateSpan(latitudeDelta: 0.01, longitudeDelta: 0.01)
+
+    private static var fallbackRegion: MKCoordinateRegion {
+        MKCoordinateRegion(center: fallbackCenter, span: fallbackSpan)
     }
 
-    nonisolated func locationManager(
-        _ manager: CLLocationManager,
-        didUpdateLocations locations: [CLLocation]
-    ) {
-        guard let location = locations.last else { return }
-        Task { @MainActor in
-            self.currentLocation = location
-            self.isLocationAvailable = true
-            self.reverseGeocode(location)
-        }
-    }
+    private var oneShot: OneShotLocationFetcher?
 
-    nonisolated func locationManager(
-        _ manager: CLLocationManager,
-        didFailWithError error: Error
-    ) {
-        Task { @MainActor in
-            self.cityName = "Location unavailable"
-            self.isLocationAvailable = false
-        }
-    }
+    private init() {}
 
-    // MARK: - Reverse geocoding
-
-    private func reverseGeocode(_ location: CLLocation) {
-        if let last = lastGeocodedLocation,
-           location.distance(from: last) < 200 { return }
-
-        lastGeocodedLocation = location
-
-        Task { @MainActor [weak self] in
+    /// Call from the map card location button to trigger When Shared / one-shot fix.
+    func requestUserLocation() {
+        let fetcher = OneShotLocationFetcher { [weak self] result in
             guard let self else { return }
-            do {
-                guard let request = MKReverseGeocodingRequest(location: location) else {
-                    self.cityName = "Location unavailable"
-                    return
-                }
-                let mapItems = try await request.mapItems
-                guard let item = mapItems.first else {
-                    self.cityName = "Location unavailable"
-                    return
-                }
-
-                if let reps = item.addressRepresentations {
-                    if let contextual = reps.cityWithContext(.short)
-                        ?? reps.cityWithContext(.automatic)
-                        ?? reps.cityWithContext(.full) {
-                        self.cityName = contextual
-                    } else if let city = reps.cityName {
-                        let state = reps.regionName ?? ""
-                        self.cityName = state.isEmpty ? city : "\(city), \(state)"
-                    } else {
-                        self.cityName = Self.cityNameFromAddress(item.address)
-                    }
-                } else {
-                    self.cityName = Self.cityNameFromAddress(item.address)
-                }
-            } catch {
-                self.cityName = "Location unavailable"
+            self.oneShot = nil
+            switch result {
+            case .success(let coordinate):
+                self.userDidShareLocation(coordinate: coordinate)
+            case .failure:
+                self.isLocationActive = false
+                self.userCoordinate = nil
+                self.cityName = "Tap location button"
+                self.region = Self.fallbackRegion
             }
         }
+        oneShot = fetcher
+        fetcher.start()
     }
 
-    /// Prefer `MKAddress` short/full strings (iOS 26+); avoids deprecated `MKMapItem.placemark`.
-    private static func cityNameFromAddress(_ address: MKAddress?) -> String {
-        guard let address else { return "Unknown" }
-        if let short = address.shortAddress, !short.isEmpty { return short }
-        if !address.fullAddress.isEmpty { return address.fullAddress }
-        return "Unknown"
+    /// MapKit / one-shot pipeline delivered a coordinate.
+    func userDidShareLocation(coordinate: CLLocationCoordinate2D) {
+        userCoordinate = coordinate
+        isLocationActive = true
+        withAnimation(.easeInOut(duration: 0.45)) {
+            self.region = MKCoordinateRegion(center: coordinate, span: Self.fallbackSpan)
+        }
+        reverseGeocode(coordinate)
+    }
+
+    func reset() {
+        userCoordinate = nil
+        isLocationActive = false
+        cityName = "Locating..."
+        region = Self.fallbackRegion
+    }
+
+    // MARK: - Reverse geocode (MapKit on iOS 18+, CLGeocoder fallback)
+
+    private func reverseGeocode(_ coordinate: CLLocationCoordinate2D) {
+        if #available(iOS 18, *) {
+            Task {
+                do {
+                    let location = CLLocation(
+                        latitude: coordinate.latitude,
+                        longitude: coordinate.longitude
+                    )
+                    guard let request = MKReverseGeocodingRequest(location: location) else {
+                        await MainActor.run { self.cityName = "Location active" }
+                        return
+                    }
+                    let mapItems = try await request.mapItems
+                    await MainActor.run {
+                        guard let item = mapItems.first else {
+                            self.cityName = "Location active"
+                            return
+                        }
+                        if let reps = item.addressRepresentations {
+                            if let line = reps.cityWithContext(.full)
+                                ?? reps.cityWithContext(.automatic) {
+                                self.cityName = line
+                            } else {
+                                let city = reps.cityName ?? "Unknown"
+                                let region = reps.regionName ?? ""
+                                self.cityName = region.isEmpty ? city : "\(city), \(region)"
+                            }
+                        } else if let addr = item.address {
+                            let line = addr.shortAddress ?? addr.fullAddress
+                            if !line.isEmpty {
+                                self.cityName = line
+                            } else {
+                                self.cityName = "Location active"
+                            }
+                        } else {
+                            self.cityName = "Location active"
+                        }
+                    }
+                } catch {
+                    await MainActor.run {
+                        self.cityName = "Location active"
+                    }
+                }
+            }
+        } else {
+            Task {
+                do {
+                    let cityString = try await withCheckedThrowingContinuation {
+                        (continuation: CheckedContinuation<String, Error>) in
+                        CLGeocoder().reverseGeocodeLocation(
+                            CLLocation(
+                                latitude: coordinate.latitude,
+                                longitude: coordinate.longitude
+                            )
+                        ) { placemarks, error in
+                            if let error {
+                                continuation.resume(throwing: error)
+                                return
+                            }
+                            let city = placemarks?.first?.locality
+                                ?? placemarks?.first?.subAdministrativeArea
+                                ?? placemarks?.first?.administrativeArea
+                                ?? "Unknown"
+                            let state = placemarks?.first?
+                                .administrativeArea ?? ""
+                            let name = state.isEmpty
+                                ? city : "\(city), \(state)"
+                            continuation.resume(returning: name)
+                        }
+                    }
+                    await MainActor.run {
+                        self.cityName = cityString
+                    }
+                } catch {
+                    await MainActor.run {
+                        self.cityName = "Location active"
+                    }
+                }
+            }
+        }
     }
 }

@@ -12,14 +12,6 @@ import SwiftUI
 struct HomeView: View {
     @StateObject private var locationManager = LocationManager.shared
 
-    /// Forces `Map` to rebuild when coordinates change (`.constant` position does not animate updates).
-    private var locationMapIdentity: String {
-        if let c = locationManager.currentLocation?.coordinate {
-            return "\(c.latitude)-\(c.longitude)"
-        }
-        return "fallback-sf"
-    }
-
     @State private var showDetection = false
     @State private var showSettings  = false
     @State private var showHistory   = false
@@ -63,12 +55,6 @@ struct HomeView: View {
         }
         .fullScreenCover(isPresented: $showCrossing) {
             CrossingGuidanceView()
-        }
-        .onAppear {
-            locationManager.requestPermission()
-        }
-        .onDisappear {
-            locationManager.stopUpdating()
         }
     }
 
@@ -140,26 +126,66 @@ struct HomeView: View {
 
     // MARK: - Live Map Card
 
+    private var mapSensorDotColor: Color {
+        if locationManager.isLocationActive { return Color(hex: "22C55E") }
+        if locationManager.cityName == "Locating..." { return Color(hex: "F97316") }
+        return Color(hex: "EF4444")
+    }
+
+    private var mapSensorStatusText: String {
+        if locationManager.isLocationActive { return "Sensors Active" }
+        if locationManager.cityName == "Locating..." { return "Locating..." }
+        return "Location Off"
+    }
+
     private var liveMapCard: some View {
         ZStack(alignment: .topLeading) {
-            Map(position: .constant(.region(MKCoordinateRegion(
-                center: locationManager.currentLocation?.coordinate
-                    ?? CLLocationCoordinate2D(latitude: 37.7749, longitude: -122.4194),
-                span: MKCoordinateSpan(latitudeDelta: 0.01, longitudeDelta: 0.01)
-            ))))
-            .id(locationMapIdentity)
-            .frame(height: 160)
-            .clipShape(RoundedRectangle(cornerRadius: 20))
-            .disabled(true)
+            ZStack(alignment: .bottomTrailing) {
+                Map(position: .constant(
+                    .region(locationManager.region)
+                )) {
+                    if let coordinate = locationManager.userCoordinate {
+                        Annotation("You", coordinate: coordinate) {
+                            ZStack {
+                                Circle()
+                                    .fill(Color(hex: "3B82F6").opacity(0.3))
+                                    .frame(width: 24, height: 24)
+                                Circle()
+                                    .fill(Color(hex: "3B82F6"))
+                                    .frame(width: 12, height: 12)
+                                Circle()
+                                    .stroke(Color.white, lineWidth: 2)
+                                    .frame(width: 12, height: 12)
+                            }
+                        }
+                    }
+                }
+                .frame(height: 140)
+                .cornerRadius(16)
+                .disabled(true)
 
-            RoundedRectangle(cornerRadius: 20)
+                Button {
+                    locationManager.requestUserLocation()
+                } label: {
+                    Image(systemName: "location.circle.fill")
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundStyle(Color(hex: "2563EB"))
+                        .frame(width: 36, height: 36)
+                        .background(Circle().fill(Color.white))
+                        .shadow(color: .black.opacity(0.18), radius: 4, y: 1)
+                }
+                .padding(10)
+                .accessibilityLabel("Share my location")
+            }
+            .frame(height: 140)
+
+            RoundedRectangle(cornerRadius: 16)
                 .fill(Color.black.opacity(0.35))
+                .frame(height: 140)
+                .allowsHitTesting(false)
 
-            // Content
             VStack(alignment: .leading, spacing: 0) {
-                // Top row
                 HStack(alignment: .top) {
-                    // LIVE MAP pill
                     Text("LIVE MAP")
                         .font(.system(size: 11, weight: .bold))
                         .foregroundStyle(Color(hex: "60A5FA"))
@@ -177,7 +203,6 @@ struct HomeView: View {
 
                     Spacer()
 
-                    // Location
                     HStack(spacing: 4) {
                         Image(systemName: "location.fill")
                             .font(.system(size: 11))
@@ -185,18 +210,24 @@ struct HomeView: View {
                         Text(locationManager.cityName)
                             .font(.system(size: 12))
                             .foregroundStyle(Color(hex: "9CA3AF"))
+                            .opacity(
+                                (locationManager.cityName == "Locating..." && !locationManager.isLocationActive)
+                                    ? (sensorPulse ? 0.45 : 1.0)
+                                    : 1.0
+                            )
+                            .animation(
+                                .easeInOut(duration: 1.0).repeatForever(autoreverses: true),
+                                value: sensorPulse
+                            )
                     }
                 }
 
                 Spacer()
 
-                // Sensors active
                 HStack(spacing: 6) {
                     ZStack {
                         Circle()
-                            .fill(locationManager.isLocationAvailable
-                                ? Color(hex: "22C55E")
-                                : Color(hex: "EF4444"))
+                            .fill(mapSensorDotColor)
                             .frame(width: 8, height: 8)
                             .scaleEffect(sensorPulse ? 1.3 : 1.0)
                             .animation(
@@ -204,14 +235,17 @@ struct HomeView: View {
                                 value: sensorPulse
                             )
                     }
-                    Text(locationManager.isLocationAvailable ? "Sensors Active" : "Location Off")
+                    Text(mapSensorStatusText)
                         .font(.system(size: 13, weight: .medium))
                         .foregroundStyle(Color(hex: "E5E7EB"))
                 }
             }
             .padding(16)
+            .frame(height: 140)
+            .allowsHitTesting(false)
         }
-        .frame(height: 160)
+        .frame(height: 140)
+        .clipShape(RoundedRectangle(cornerRadius: 16))
         .padding(.horizontal, 20)
         .padding(.top, 20)
         .onAppear { sensorPulse = true }

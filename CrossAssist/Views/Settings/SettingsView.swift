@@ -89,9 +89,11 @@ struct SettingsView: View {
     @AppStorage("autoAlert")             private var autoAlert          = false
     @AppStorage("detectionSensitivity")  private var sensitivity        = "Normal"
     @AppStorage("onboardingComplete")    private var onboardingComplete = true
+    @AppStorage("userName")              private var userName           = ""
 
     @State private var showSensitivitySheet = false
     @State private var showEmergency        = false
+    @State private var showProfileSetup     = false
 
     // MARK: - Body
 
@@ -117,6 +119,9 @@ struct SettingsView: View {
         }
         .sheet(isPresented: $showSensitivitySheet) {
             sensitivitySheet
+        }
+        .sheet(isPresented: $showProfileSetup) {
+            ProfileSetupView()
         }
         .fullScreenCover(isPresented: $showEmergency) {
             EmergencyView()
@@ -156,23 +161,23 @@ struct SettingsView: View {
                 Circle()
                     .fill(Color(hex: "1D4ED8"))
                     .frame(width: 56, height: 56)
-                Text("A")
+                Text(userName.isEmpty ? "?" : String(userName.prefix(1)).uppercased())
                     .font(.system(size: 24, weight: .bold))
                     .foregroundStyle(.white)
             }
 
             VStack(alignment: .leading, spacing: 4) {
-                Text("Alex")
+                Text(userName.isEmpty ? "Guest User" : userName)
                     .font(.system(size: 18, weight: .bold))
                     .foregroundStyle(.white)
-                Text("Guest User")
+                Text(userName.isEmpty ? "Tap Edit to set up profile" : "CrossAssist User")
                     .font(.system(size: 14))
                     .foregroundStyle(Color(hex: "9CA3AF"))
             }
 
             Spacer()
 
-            Button { print("edit profile") } label: {
+            Button { showProfileSetup = true } label: {
                 Text("Edit")
                     .font(.system(size: 14, weight: .bold))
                     .foregroundStyle(Color(hex: "3B82F6"))

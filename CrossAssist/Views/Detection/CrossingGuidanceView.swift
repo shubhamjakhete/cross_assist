@@ -110,13 +110,6 @@ struct CrossingGuidanceView: View {
                 .foregroundStyle(.white)
 
             Spacer()
-
-            Button { print("more options") } label: {
-                Image(systemName: "ellipsis")
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(.white)
-                    .frame(width: 36, height: 36)
-            }
         }
         .padding(.horizontal, 20)
         .padding(.top, 8)
@@ -270,10 +263,23 @@ struct CrossingGuidanceView: View {
     // MARK: - Map Card
 
     private var mapCard: some View {
-        Map(position: .constant(.region(MKCoordinateRegion(
-            center: CLLocationCoordinate2D(latitude: 37.7749, longitude: -122.4194),
-            span:   MKCoordinateSpan(latitudeDelta: 0.05, longitudeDelta: 0.05)
-        ))))
+        Map(position: .constant(.region(LocationManager.shared.region))) {
+            if let coordinate = LocationManager.shared.userCoordinate {
+                Annotation("You", coordinate: coordinate) {
+                    ZStack {
+                        Circle()
+                            .fill(Color(hex: "3B82F6").opacity(0.3))
+                            .frame(width: 24, height: 24)
+                        Circle()
+                            .fill(Color(hex: "3B82F6"))
+                            .frame(width: 12, height: 12)
+                        Circle()
+                            .stroke(Color.white, lineWidth: 2)
+                            .frame(width: 12, height: 12)
+                    }
+                }
+            }
+        }
         .frame(height: 160)
         .clipShape(RoundedRectangle(cornerRadius: 16))
         .disabled(true)

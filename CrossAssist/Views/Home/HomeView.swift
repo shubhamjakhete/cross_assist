@@ -11,6 +11,7 @@ import SwiftUI
 
 struct HomeView: View {
     @StateObject private var locationManager = LocationManager.shared
+    @AppStorage("userName") private var userName = ""
 
     @State private var showDetection = false
     @State private var showSettings  = false
@@ -111,13 +112,23 @@ struct HomeView: View {
 
     private var greetingSection: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text("Good Morning, Alex")
-                .font(.system(size: 14))
-                .foregroundStyle(Color(hex: "9CA3AF"))
-            Text("Ready to cross\nsafely?")
-                .font(.system(size: 32, weight: .heavy))
-                .foregroundStyle(.white)
-                .lineSpacing(2)
+            if userName.isEmpty {
+                Text("Welcome to CrossAssist")
+                    .font(.system(size: 14))
+                    .foregroundStyle(Color(hex: "9CA3AF"))
+                Text("Ready to cross\nsafely?")
+                    .font(.system(size: 32, weight: .heavy))
+                    .foregroundStyle(.white)
+                    .lineSpacing(2)
+            } else {
+                Text("Good Morning, \(userName)")
+                    .font(.system(size: 14))
+                    .foregroundStyle(Color(hex: "9CA3AF"))
+                Text("Ready to cross\nsafely?")
+                    .font(.system(size: 32, weight: .heavy))
+                    .foregroundStyle(.white)
+                    .lineSpacing(2)
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 20)
@@ -139,6 +150,7 @@ struct HomeView: View {
     }
 
     private var liveMapCard: some View {
+        VStack(alignment: .leading, spacing: 0) {
         ZStack(alignment: .topLeading) {
             ZStack(alignment: .bottomTrailing) {
                 Map(position: .constant(
@@ -167,12 +179,12 @@ struct HomeView: View {
                 Button {
                     locationManager.requestUserLocation()
                 } label: {
-                    Image(systemName: "location.circle.fill")
-                        .font(.system(size: 18, weight: .semibold))
-                        .foregroundStyle(Color(hex: "2563EB"))
-                        .frame(width: 36, height: 36)
-                        .background(Circle().fill(Color.white))
-                        .shadow(color: .black.opacity(0.18), radius: 4, y: 1)
+                    Image(systemName: "location.fill")
+                        .font(.system(size: 20, weight: .bold))
+                        .foregroundStyle(.white)
+                        .frame(width: 44, height: 44)
+                        .background(Circle().fill(Color(hex: "2563EB")))
+                        .shadow(color: Color(hex: "2563EB").opacity(0.5), radius: 6, y: 2)
                 }
                 .padding(10)
                 .accessibilityLabel("Share my location")
@@ -249,6 +261,15 @@ struct HomeView: View {
         .padding(.horizontal, 20)
         .padding(.top, 20)
         .onAppear { sensorPulse = true }
+
+        if !locationManager.isLocationActive {
+            Text("Tap  to share location")
+                .font(.system(size: 10))
+                .foregroundStyle(Color(hex: "6B7280"))
+                .padding(.horizontal, 20)
+                .padding(.top, 4)
+        }
+        } // end VStack
     }
 
     // MARK: - Action Buttons

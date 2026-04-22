@@ -9,15 +9,14 @@ import SwiftUI
 import UIKit
 
 struct TopBarView: View {
-    @AppStorage("voiceEnabled")   private var voiceEnabled   = true
-    @AppStorage("hapticsEnabled") private var hapticsEnabled = true
+    @AppStorage("voiceEnabled") private var voiceEnabled = true
     @State private var batteryLevel: Float = -1
 
     var onSOSTapped: () -> Void = {}
 
     var body: some View {
-        HStack(spacing: 10) {
-            // Voice toggle
+        HStack {
+            // Voice toggle — left
             Button {
                 voiceEnabled.toggle()
                 if !voiceEnabled {
@@ -26,33 +25,29 @@ struct TopBarView: View {
             } label: {
                 pill(
                     icon: voiceEnabled ? "speaker.wave.2.fill" : "speaker.slash.fill",
-                    text: voiceEnabled ? "Voice ON"  : "Voice OFF"
+                    text: voiceEnabled ? "Voice ON" : "Voice OFF"
                 )
             }
 
-            // Haptic toggle
-            Button { hapticsEnabled.toggle() } label: {
-                pill(
-                    icon: hapticsEnabled ? "iphone.radiowaves.left.and.right" : "iphone",
-                    text: hapticsEnabled ? "Haptic ON" : "Haptic OFF"
-                )
+            Spacer()
+
+            // SOS — center
+            Button { onSOSTapped() } label: {
+                Text("SOS")
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(Color(hex: "EF4444"), in: Capsule())
             }
 
-            // Battery (non-interactive)
+            Spacer()
+
+            // Battery — right
             pill(
                 icon: "battery.100",
                 text: batteryLevel < 0 ? "100%" : "\(Int(batteryLevel * 100))%"
             )
-
-            // SOS button
-            Button { onSOSTapped() } label: {
-                Text("SOS")
-                    .font(.system(size: 13, weight: .bold))
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 8)
-                    .background(Color(hex: "EF4444"), in: Capsule())
-            }
         }
         .onAppear {
             UIDevice.current.isBatteryMonitoringEnabled = true
@@ -61,15 +56,15 @@ struct TopBarView: View {
     }
 
     private func pill(icon: String, text: String) -> some View {
-        HStack(spacing: 6) {
+        HStack(spacing: 5) {
             Image(systemName: icon)
-                .font(.system(size: 13, weight: .medium))
+                .font(.system(size: 12, weight: .medium))
             Text(text)
-                .font(.system(size: 13, weight: .medium))
+                .font(.system(size: 12, weight: .medium))
         }
         .foregroundStyle(.white)
-        .padding(.horizontal, 14)
-        .padding(.vertical, 8)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
         .background(Color.black.opacity(0.55), in: Capsule())
     }
 }
